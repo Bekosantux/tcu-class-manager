@@ -1,1 +1,75 @@
-h1 { font-family: Arial, Helvetica, sans-serif; }
+/* Custom styles for the course management system */
+.timetable-cell {
+  min-height: 80px;
+  transition: all 0.2s ease;
+}
+
+.timetable-cell:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.course-card {
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Sidebar animation */
+#sidebar {
+  box-shadow: 4px 0 6px rgba(0, 0, 0, 0.1);
+}
+
+/* Custom scrollbar for timetable */
+.timetable-scroll::-webkit-scrollbar {
+  height: 8px;
+}
+
+.timetable-scroll::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+.timetable-scroll::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 4px;
+}
+
+.timetable-scroll::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* Loading animation */
+.loading-spinner {
+  border: 3px solid #f3f3f3;
+  border-top: 3px solid #3498db;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  #sidebar {
+    width: 100%;
+  }
+  
+  .timetable-cell {
+    font-size: 0.8rem;
+  }
+}
