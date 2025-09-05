@@ -156,6 +156,158 @@ app.delete('/api/registrations/:id', async (c) => {
   }
 });
 
+// Get all registrations with course details
+app.get('/api/registrations', async (c) => {
+  const { DB } = c.env;
+  
+  try {
+    const result = await DB.prepare(`
+      SELECT 
+        r.*,
+        c.course_code,
+        c.course_name,
+        c.instructor,
+        c.credits,
+        c.course_type,
+        c.category,
+        c.year as course_year,
+        c.remarks
+      FROM registrations r
+      INNER JOIN courses c ON r.course_id = c.id
+      WHERE r.user_id = 1
+      ORDER BY r.year DESC, r.quarter, c.course_code
+    `).all();
+    
+    return c.json(result.results || []);
+  } catch (error) {
+    console.error('Error fetching registrations:', error);
+    return c.json({ error: 'Failed to fetch registrations' }, 500);
+  }
+});
+
+// Update registration (grade, status)
+app.put('/api/registrations/:id', async (c) => {
+  const { DB } = c.env;
+  const courseId = c.req.param('id');
+  const body = await c.req.json();
+  
+  try {
+    let gradePoint = null;
+    if (body.grade) {
+      // Get grade point based on grade
+      const gradeResult = await DB.prepare(`
+        SELECT grade_point FROM grade_scales 
+        WHERE format = ? AND grade = ?
+      `).bind(body.grade_format || 'japanese', body.grade).first();
+      
+      if (gradeResult) {
+        gradePoint = gradeResult.grade_point;
+      }
+    }
+    
+    await DB.prepare(`
+      UPDATE registrations 
+      SET status = ?, grade = ?, grade_point = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE course_id = ? AND user_id = 1
+    `).bind(
+      body.status,
+      body.grade,
+      gradePoint,
+      courseId
+    ).run();
+    
+    return c.json({ success: true });
+  } catch (error) {
+    console.error('Error updating registration:', error);
+    return c.json({ error: 'Failed to update registration' }, 500);
+  }
+});
+
+// Get credit summary
+app.get('/api/credit-summary', async (c) => {
+  const { DB } = c.env;
+  
+  try {
+    // Get user's department
+    const userSettings = await DB.prepare(`
+      SELECT department FROM user_settings WHERE id = 1
+    `).first();
+    
+    if (!userSettings) {
+      return c.json({ error: 'User settings not found' }, 404);
+    }
+    
+    // Get graduation requirements
+    const requirements = await DB.prepare(`
+      SELECT * FROM graduation_requirements 
+      WHERE department = ?
+    `).bind(userSettings.department).all();
+    
+    // Get earned credits by category
+    const earnedCredits = await DB.prepare(`
+      SELECT 
+        c.category,
+        SUM(CASE WHEN r.status = 'completed' AND r.grade != '不可' AND r.grade != 'E' THEN c.credits ELSE 0 END) as earned_credits,
+        SUM(CASE WHEN r.status = 'registered' THEN c.credits ELSE 0 END) as registered_credits
+      FROM registrations r
+      INNER JOIN courses c ON r.course_id = c.id
+      WHERE r.user_id = 1
+      GROUP BY c.category
+    `).all();
+    
+    // Get GPA
+    const gpaResult = await DB.prepare(`
+      SELECT 
+        AVG(r.grade_point) as gpa,
+        COUNT(*) as total_courses,
+        SUM(CASE WHEN r.grade_point >= 1 THEN c.credits ELSE 0 END) as total_earned_credits
+      FROM registrations r
+      INNER JOIN courses c ON r.course_id = c.id
+      WHERE r.user_id = 1 AND r.status = 'completed' AND r.grade_point IS NOT NULL
+    `).first();
+    
+    return c.json({
+      requirements: requirements.results || [],
+      earned: earnedCredits.results || [],
+      gpa: gpaResult?.gpa || 0,
+      total_earned: gpaResult?.total_earned_credits || 0
+    });
+  } catch (error) {
+    console.error('Error fetching credit summary:', error);
+    return c.json({ error: 'Failed to fetch credit summary' }, 500);
+  }
+});
+
+// Update course information
+app.put('/api/courses/:id', async (c) => {
+  const { DB } = c.env;
+  const courseId = c.req.param('id');
+  const body = await c.req.json();
+  
+  try {
+    await DB.prepare(`
+      UPDATE courses 
+      SET course_name = ?, instructor = ?, classroom = ?, credits = ?, 
+          category = ?, course_type = ?, remarks = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).bind(
+      body.course_name,
+      body.instructor,
+      body.classroom,
+      body.credits,
+      body.category,
+      body.course_type,
+      body.remarks,
+      courseId
+    ).run();
+    
+    return c.json({ success: true });
+  } catch (error) {
+    console.error('Error updating course:', error);
+    return c.json({ error: 'Failed to update course' }, 500);
+  }
+});
+
 // Initialize database tables
 app.post('/api/init-db', async (c) => {
   const { DB } = c.env;
@@ -338,11 +490,180 @@ app.get('/', (c) => {
                     </div>
                 </div>
 
-                <!-- Grades View (placeholder) -->
+                <!-- Grades View -->
                 <div id="gradesView" class="hidden">
                     <h2 class="text-xl font-bold mb-4">成績照会</h2>
-                    <div class="bg-white rounded-lg shadow p-6">
-                        <p class="text-gray-600">成績照会機能は現在開発中です。</p>
+                    
+                    <!-- Tab Navigation -->
+                    <div class="flex border-b mb-4">
+                        <button id="registeredTab" onclick="showRegisteredCourses()" class="px-4 py-2 font-medium text-blue-600 border-b-2 border-blue-600">
+                            登録済み講義一覧
+                        </button>
+                        <button id="gradeTab" onclick="showGradeEvaluation()" class="px-4 py-2 font-medium text-gray-600 hover:text-gray-800">
+                            成績評価
+                        </button>
+                        <button id="creditTab" onclick="showCreditSummary()" class="px-4 py-2 font-medium text-gray-600 hover:text-gray-800">
+                            単位集計・卒業要件
+                        </button>
+                    </div>
+                    
+                    <!-- Registered Courses List -->
+                    <div id="registeredCoursesView" class="bg-white rounded-lg shadow">
+                        <div class="p-4 border-b">
+                            <div class="flex justify-between items-center">
+                                <h3 class="text-lg font-semibold">登録済み講義一覧</h3>
+                                <div class="space-x-2">
+                                    <select id="statusFilter" onchange="filterCourses()" class="border rounded px-2 py-1">
+                                        <option value="">全て表示</option>
+                                        <option value="completed">取得済</option>
+                                        <option value="registered">履修中</option>
+                                        <option value="planned">履修予定</option>
+                                        <option value="failed">不合格</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full">
+                                <thead>
+                                    <tr class="bg-gray-50 text-left">
+                                        <th class="px-4 py-2 border-b">講義コード</th>
+                                        <th class="px-4 py-2 border-b">講義名</th>
+                                        <th class="px-4 py-2 border-b">担当者</th>
+                                        <th class="px-4 py-2 border-b">単位</th>
+                                        <th class="px-4 py-2 border-b">区分</th>
+                                        <th class="px-4 py-2 border-b">ステータス</th>
+                                        <th class="px-4 py-2 border-b">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="registeredCoursesList">
+                                    <!-- Dynamically generated -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    
+                    <!-- Grade Evaluation View -->
+                    <div id="gradeEvaluationView" class="hidden">
+                        <div id="gradeCategoryGroups">
+                            <!-- Dynamically generated category groups -->
+                        </div>
+                    </div>
+                    
+                    <!-- Credit Summary View -->
+                    <div id="creditSummaryView" class="hidden">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div class="bg-white rounded-lg shadow p-6">
+                                <h3 class="text-lg font-semibold mb-4">単位集計</h3>
+                                <div id="creditSummaryContent">
+                                    <!-- Dynamically generated -->
+                                </div>
+                            </div>
+                            <div class="bg-white rounded-lg shadow p-6">
+                                <h3 class="text-lg font-semibold mb-4">卒業要件</h3>
+                                <div id="graduationRequirements">
+                                    <!-- Dynamically generated -->
+                                </div>
+                            </div>
+                        </div>
+                        <div class="bg-white rounded-lg shadow p-6 mt-4">
+                            <h3 class="text-lg font-semibold mb-4">GPA</h3>
+                            <div id="gpaDisplay" class="text-2xl font-bold text-blue-600">
+                                <!-- Dynamically generated -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Course Edit Modal -->
+                <div id="courseEditModal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50">
+                    <div class="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+                        <div class="flex justify-between items-center mb-4">
+                            <h3 class="text-xl font-bold">講義情報編集</h3>
+                            <button onclick="closeEditModal()" class="text-gray-500 hover:text-gray-700">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                        <form id="courseEditForm" class="space-y-4">
+                            <input type="hidden" id="editCourseId">
+                            
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">講義コード</label>
+                                    <input type="text" id="editCourseCode" class="w-full border rounded px-3 py-2" readonly>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">講義名</label>
+                                    <input type="text" id="editCourseName" class="w-full border rounded px-3 py-2">
+                                </div>
+                            </div>
+                            
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">担当者</label>
+                                    <input type="text" id="editInstructor" class="w-full border rounded px-3 py-2">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">教室</label>
+                                    <input type="text" id="editClassroom" class="w-full border rounded px-3 py-2">
+                                </div>
+                            </div>
+                            
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">単位数</label>
+                                    <input type="number" id="editCredits" class="w-full border rounded px-3 py-2" min="0.5" max="8" step="0.5">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">区分</label>
+                                    <select id="editCategory" class="w-full border rounded px-3 py-2">
+                                        <option value="general">教養</option>
+                                        <option value="specialized_required">専門必修</option>
+                                        <option value="specialized_elective">専門選択</option>
+                                        <option value="foreign_language">外国語</option>
+                                        <option value="free">自由</option>
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">ステータス</label>
+                                    <select id="editStatus" class="w-full border rounded px-3 py-2">
+                                        <option value="registered">履修中</option>
+                                        <option value="completed">取得済</option>
+                                        <option value="planned">履修予定</option>
+                                        <option value="failed">不合格</option>
+                                        <option value="dropped">履修取消</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">成績</label>
+                                    <select id="editGrade" class="w-full border rounded px-3 py-2">
+                                        <option value="">未評価</option>
+                                        <option value="秀">秀</option>
+                                        <option value="優">優</option>
+                                        <option value="良">良</option>
+                                        <option value="可">可</option>
+                                        <option value="不可">不可</option>
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">備考</label>
+                                <textarea id="editRemarks" class="w-full border rounded px-3 py-2" rows="3"></textarea>
+                            </div>
+                            
+                            <div class="flex justify-end space-x-2 pt-4">
+                                <button type="button" onclick="closeEditModal()" class="px-4 py-2 bg-gray-400 text-white rounded hover:bg-gray-500">
+                                    キャンセル
+                                </button>
+                                <button type="button" onclick="saveCourseEdit()" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+                                    保存
+                                </button>
+                            </div>
+                        </form>
                     </div>
                 </div>
             </main>
