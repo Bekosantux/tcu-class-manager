@@ -363,8 +363,8 @@ app.get('/', (c) => {
                                 </a>
                             </li>
                             <li>
-                                <a href="#" onclick="showSettings(); toggleSidebar();" class="block px-4 py-2 rounded hover:bg-gray-700 transition-colors">
-                                    <i class="fas fa-cog mr-2"></i>個人設定
+                                <a href="#" onclick="showRegisteredCoursesList(); toggleSidebar();" class="block px-4 py-2 rounded hover:bg-gray-700 transition-colors">
+                                    <i class="fas fa-list mr-2"></i>登録済み講義一覧
                                 </a>
                             </li>
                             <li>
@@ -379,6 +379,27 @@ app.get('/', (c) => {
                             </li>
                         </ul>
                     </nav>
+                    
+                    <!-- 講義時間表 -->
+                    <div class="mt-6 p-3 bg-gray-700 rounded">
+                        <h3 class="text-sm font-semibold mb-2 text-gray-300">講義時間</h3>
+                        <table class="w-full text-xs text-gray-300">
+                            <tbody>
+                                <tr><td class="py-1">1時限</td><td class="text-right">9:20~11:00</td></tr>
+                                <tr><td class="py-1">2時限</td><td class="text-right">11:10~12:50</td></tr>
+                                <tr><td class="py-1">3時限</td><td class="text-right">13:40~15:20</td></tr>
+                                <tr><td class="py-1">4時限</td><td class="text-right">15:30~17:10</td></tr>
+                                <tr><td class="py-1">5時限</td><td class="text-right">17:20~19:00</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <!-- 個人設定を最下部に配置 -->
+                    <div class="absolute bottom-4 left-0 right-0 px-4">
+                        <a href="#" onclick="showSettings(); toggleSidebar();" class="block px-4 py-2 rounded hover:bg-gray-700 transition-colors text-gray-300">
+                            <i class="fas fa-cog mr-2"></i>個人設定
+                        </a>
+                    </div>
                 </div>
             </div>
 
@@ -392,6 +413,11 @@ app.get('/', (c) => {
                         <h1 class="text-2xl font-bold text-gray-800">履修管理システム</h1>
                     </div>
                     <div class="flex items-center space-x-4">
+                        <select id="yearSelect" class="border rounded px-3 py-1" onchange="changeYear()">
+                            <option value="2024">2024年度</option>
+                            <option value="2025">2025年度</option>
+                            <option value="2026">2026年度</option>
+                        </select>
                         <select id="quarterSelect" class="border rounded px-3 py-1" onchange="changeQuarter()">
                             <option value="Q1">第1クォーター</option>
                             <option value="Q2">第2クォーター</option>
@@ -490,36 +516,24 @@ app.get('/', (c) => {
                     </div>
                 </div>
 
-                <!-- Grades View -->
-                <div id="gradesView" class="hidden">
-                    <h2 class="text-xl font-bold mb-4">成績照会</h2>
-                    
-                    <!-- Tab Navigation -->
-                    <div class="flex border-b mb-4">
-                        <button id="registeredTab" onclick="showRegisteredCourses()" class="px-4 py-2 font-medium text-blue-600 border-b-2 border-blue-600">
-                            登録済み講義一覧
-                        </button>
-                        <button id="gradeTab" onclick="showGradeEvaluation()" class="px-4 py-2 font-medium text-gray-600 hover:text-gray-800">
-                            成績評価
-                        </button>
-                        <button id="creditTab" onclick="showCreditSummary()" class="px-4 py-2 font-medium text-gray-600 hover:text-gray-800">
-                            単位集計・卒業要件
-                        </button>
-                    </div>
-                    
-                    <!-- Registered Courses List -->
-                    <div id="registeredCoursesView" class="bg-white rounded-lg shadow">
+                <!-- Registered Courses List (Independent View) -->
+                <div id="registeredCoursesListView" class="hidden">
+                    <h2 class="text-xl font-bold mb-4">登録済み講義一覧</h2>
+                    <div class="bg-white rounded-lg shadow">
                         <div class="p-4 border-b">
                             <div class="flex justify-between items-center">
-                                <h3 class="text-lg font-semibold">登録済み講義一覧</h3>
                                 <div class="space-x-2">
                                     <select id="statusFilter" onchange="filterCourses()" class="border rounded px-2 py-1">
                                         <option value="">全て表示</option>
+                                        <option value="">状況なし</option>
                                         <option value="completed">取得済</option>
                                         <option value="registered">履修中</option>
                                         <option value="planned">履修予定</option>
                                         <option value="failed">不合格</option>
                                     </select>
+                                    <button id="deleteToggleBtn" onclick="toggleDeleteMode()" class="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600">
+                                        <i class="fas fa-trash mr-1"></i>削除モード
+                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -527,12 +541,15 @@ app.get('/', (c) => {
                             <table class="w-full">
                                 <thead>
                                     <tr class="bg-gray-50 text-left">
+                                        <th class="px-2 py-2 border-b hidden" id="deleteHeader">
+                                            <input type="checkbox" id="selectAllDelete" onchange="toggleSelectAll()">
+                                        </th>
                                         <th class="px-4 py-2 border-b">講義コード</th>
                                         <th class="px-4 py-2 border-b">講義名</th>
                                         <th class="px-4 py-2 border-b">担当者</th>
                                         <th class="px-4 py-2 border-b">単位</th>
                                         <th class="px-4 py-2 border-b">区分</th>
-                                        <th class="px-4 py-2 border-b">ステータス</th>
+                                        <th class="px-4 py-2 border-b">状況</th>
                                         <th class="px-4 py-2 border-b">操作</th>
                                     </tr>
                                 </thead>
@@ -542,11 +559,44 @@ app.get('/', (c) => {
                             </table>
                         </div>
                     </div>
+                    <div class="mt-4 hidden" id="deleteButtonContainer">
+                        <button onclick="deleteSelectedCourses()" class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">
+                            選択した講義を削除
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Grades View -->
+                <div id="gradesView" class="hidden">
+                    <h2 class="text-xl font-bold mb-4">成績照会</h2>
+                    
+                    <!-- Tab Navigation -->
+                    <div class="flex border-b mb-4">
+                        <button id="gradeTab" onclick="showGradeEvaluation()" class="px-4 py-2 font-medium text-blue-600 border-b-2 border-blue-600">
+                            成績評価
+                        </button>
+                        <button id="creditTab" onclick="showCreditSummary()" class="px-4 py-2 font-medium text-gray-600 hover:text-gray-800">
+                            単位集計・卒業要件
+                        </button>
+                    </div>
                     
                     <!-- Grade Evaluation View -->
-                    <div id="gradeEvaluationView" class="hidden">
-                        <div id="gradeCategoryGroups">
-                            <!-- Dynamically generated category groups -->
+                    <div id="gradeEvaluationView" class="bg-white rounded-lg shadow">
+                        <div class="overflow-x-auto">
+                            <table class="w-full">
+                                <thead>
+                                    <tr class="bg-pink-50 text-left">
+                                        <th class="px-4 py-3 border-b font-medium">分野系列名／科目名</th>
+                                        <th class="px-4 py-3 border-b text-center font-medium">単位</th>
+                                        <th class="px-4 py-3 border-b text-center font-medium">評価</th>
+                                        <th class="px-4 py-3 border-b text-center font-medium">年度</th>
+                                        <th class="px-4 py-3 border-b text-center font-medium">期間</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="gradeTableBody">
+                                    <!-- Dynamically generated -->
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                     
@@ -612,7 +662,7 @@ app.get('/', (c) => {
                             <div class="grid grid-cols-2 gap-4">
                                 <div>
                                     <label class="block text-sm font-medium text-gray-700 mb-1">単位数</label>
-                                    <input type="number" id="editCredits" class="w-full border rounded px-3 py-2" min="0.5" max="8" step="0.5">
+                                    <input type="number" id="editCredits" class="w-full border rounded px-3 py-2" min="0" max="8" step="0.5">
                                 </div>
                                 <div>
                                     <label class="block text-sm font-medium text-gray-700 mb-1">区分</label>
@@ -628,8 +678,9 @@ app.get('/', (c) => {
                             
                             <div class="grid grid-cols-2 gap-4">
                                 <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">ステータス</label>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">状況</label>
                                     <select id="editStatus" class="w-full border rounded px-3 py-2">
+                                        <option value="">なし</option>
                                         <option value="registered">履修中</option>
                                         <option value="completed">取得済</option>
                                         <option value="planned">履修予定</option>
@@ -648,6 +699,16 @@ app.get('/', (c) => {
                                         <option value="不可">不可</option>
                                     </select>
                                 </div>
+                            </div>
+                            
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">開講時間</label>
+                                <div id="scheduleEditor" class="space-y-2">
+                                    <!-- Dynamically generated schedule inputs -->
+                                </div>
+                                <button type="button" onclick="addScheduleRow()" class="mt-2 text-sm text-blue-600 hover:text-blue-800">
+                                    <i class="fas fa-plus"></i> 時間を追加
+                                </button>
                             </div>
                             
                             <div>

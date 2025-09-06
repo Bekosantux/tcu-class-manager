@@ -2,7 +2,10 @@
 let currentView = 'timetable';
 let userSettings = null;
 let currentQuarter = 'Q1';
+let currentYear = new Date().getFullYear();
 let timetableData = [];
+let deleteMode = false;
+let selectedForDeletion = new Set();
 
 // Department mapping
 const departments = {
@@ -216,6 +219,14 @@ function changeQuarter() {
   }
 }
 
+// Change year
+function changeYear() {
+  currentYear = document.getElementById('yearSelect').value;
+  if (currentView === 'timetable') {
+    loadTimetable();
+  }
+}
+
 // Navigation functions
 function showTimetable() {
   hideAllViews();
@@ -237,17 +248,25 @@ function showCourseRegistration() {
   currentView = 'courseRegistration';
 }
 
+function showRegisteredCoursesList() {
+  hideAllViews();
+  document.getElementById('registeredCoursesListView').classList.remove('hidden');
+  currentView = 'registeredCoursesList';
+  loadRegisteredCourses();
+}
+
 function showGrades() {
   hideAllViews();
   document.getElementById('gradesView').classList.remove('hidden');
   currentView = 'grades';
-  showRegisteredCourses(); // Default to registered courses tab
+  showGradeEvaluation(); // Default to grade evaluation tab
 }
 
 function hideAllViews() {
   document.getElementById('timetableView').classList.add('hidden');
   document.getElementById('settingsView').classList.add('hidden');
   document.getElementById('courseRegistrationView').classList.add('hidden');
+  document.getElementById('registeredCoursesListView').classList.add('hidden');
   document.getElementById('gradesView').classList.add('hidden');
 }
 
@@ -274,6 +293,7 @@ function renderTimetable() {
   // Create timetable grid
   const timetable = {};
   const intensiveCourses = [];
+  const daysWithCourses = new Set();
   
   // Initialize grid (5 periods x 6 days)
   for (let period = 1; period <= 5; period++) {
@@ -287,14 +307,39 @@ function renderTimetable() {
     };
   }
   
-  // Populate timetable
+  // Populate timetable and track which days have courses
   timetableData.forEach(course => {
     if (course.day_of_week === 'intensive') {
       intensiveCourses.push(course);
     } else if (timetable[course.period]) {
       timetable[course.period][course.day_of_week] = course;
+      daysWithCourses.add(course.day_of_week);
     }
   });
+  
+  // Always show at least Monday-Friday
+  ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'].forEach(day => daysWithCourses.add(day));
+  
+  // Create header with only days that have courses
+  const daysToShow = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'].filter(day => daysWithCourses.has(day));
+  const dayNames = {
+    monday: '月',
+    tuesday: '火',
+    wednesday: '水',
+    thursday: '木',
+    friday: '金',
+    saturday: '土'
+  };
+  
+  // Update table header
+  const table = tbody.closest('table');
+  const thead = table.querySelector('thead');
+  thead.innerHTML = `
+    <tr class="bg-gray-100">
+      <th class="border p-2 w-20">時限</th>
+      ${daysToShow.map(day => `<th class="border p-2">${dayNames[day]}</th>`).join('')}
+    </tr>
+  `;
   
   // Render regular timetable
   for (let period = 1; period <= 5; period++) {
@@ -308,21 +353,30 @@ function renderTimetable() {
     row.appendChild(periodCell);
     
     // Day columns
-    ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'].forEach(day => {
+    daysToShow.forEach(day => {
       const cell = document.createElement('td');
       cell.className = 'border p-2 h-20 relative';
+      cell.style.width = `${100 / (daysToShow.length + 1)}%`; // Equal width
       
       const course = timetable[period][day];
       if (course) {
         const courseDiv = document.createElement('div');
         courseDiv.className = course.status === 'registered' 
-          ? 'bg-blue-100 p-2 rounded cursor-pointer hover:bg-blue-200 h-full'
-          : 'bg-gray-100 p-2 rounded cursor-pointer hover:bg-gray-200 h-full';
+          ? 'bg-blue-100 p-2 rounded cursor-pointer hover:bg-blue-200 h-full overflow-hidden'
+          : 'bg-gray-100 p-2 rounded cursor-pointer hover:bg-gray-200 h-full overflow-hidden';
+        
+        // Truncate text with ellipsis
+        const courseName = course.course_name.length > 10 
+          ? course.course_name.substring(0, 10) + '...' 
+          : course.course_name;
+        const instructor = course.instructor && course.instructor.length > 8
+          ? course.instructor.substring(0, 8) + '...'
+          : course.instructor;
         
         courseDiv.innerHTML = `
-          <div class="text-sm font-semibold">${course.course_name}</div>
-          <div class="text-xs text-gray-600">${course.classroom || ''}</div>
-          <div class="text-xs text-gray-500">${course.instructor || ''}</div>
+          <div class="text-sm font-semibold truncate" title="${course.course_name}">${courseName}</div>
+          <div class="text-xs text-gray-600 truncate">${course.classroom || ''}</div>
+          <div class="text-xs text-gray-500 truncate" title="${course.instructor || ''}">${instructor || ''}</div>
         `;
         
         courseDiv.onclick = () => showCourseDetails(course);
@@ -356,7 +410,85 @@ function renderTimetable() {
 
 // Show course details (placeholder)
 function showCourseDetails(course) {
-  alert(`講義詳細:\n${course.course_name}\n担当: ${course.instructor || '未定'}\n教室: ${course.classroom || '未定'}\n単位: ${course.credits || 1}`);
+  alert(`講義詳細:\n${course.course_name}\n担当: ${course.instructor || '未定'}\n教室: ${course.classroom || '未定'}\n単位: ${course.credits || 0}`);
+}
+
+// Toggle delete mode
+function toggleDeleteMode() {
+  deleteMode = !deleteMode;
+  selectedForDeletion.clear();
+  
+  const deleteBtn = document.getElementById('deleteToggleBtn');
+  const deleteHeader = document.getElementById('deleteHeader');
+  const deleteContainer = document.getElementById('deleteButtonContainer');
+  
+  if (deleteMode) {
+    deleteBtn.classList.add('bg-gray-600');
+    deleteBtn.classList.remove('bg-red-500');
+    deleteBtn.innerHTML = '<i class="fas fa-times mr-1"></i>キャンセル';
+    deleteHeader.classList.remove('hidden');
+    deleteContainer.classList.remove('hidden');
+  } else {
+    deleteBtn.classList.remove('bg-gray-600');
+    deleteBtn.classList.add('bg-red-500');
+    deleteBtn.innerHTML = '<i class="fas fa-trash mr-1"></i>削除モード';
+    deleteHeader.classList.add('hidden');
+    deleteContainer.classList.add('hidden');
+  }
+  
+  renderRegisteredCourses(document.getElementById('statusFilter').value);
+}
+
+// Toggle course selection for deletion
+function toggleCourseSelection(courseId) {
+  if (selectedForDeletion.has(courseId)) {
+    selectedForDeletion.delete(courseId);
+  } else {
+    selectedForDeletion.add(courseId);
+  }
+}
+
+// Toggle select all for deletion
+function toggleSelectAll() {
+  const selectAll = document.getElementById('selectAllDelete');
+  const checkboxes = document.querySelectorAll('.delete-checkbox');
+  
+  checkboxes.forEach(checkbox => {
+    checkbox.checked = selectAll.checked;
+    const courseId = parseInt(checkbox.dataset.courseId);
+    if (selectAll.checked) {
+      selectedForDeletion.add(courseId);
+    } else {
+      selectedForDeletion.delete(courseId);
+    }
+  });
+}
+
+// Delete selected courses
+async function deleteSelectedCourses() {
+  if (selectedForDeletion.size === 0) {
+    alert('削除する講義を選択してください。');
+    return;
+  }
+  
+  if (!confirm(`${selectedForDeletion.size}件の講義を削除しますか？`)) {
+    return;
+  }
+  
+  try {
+    for (const courseId of selectedForDeletion) {
+      await fetch(`/api/registrations/${courseId}`, {
+        method: 'DELETE'
+      });
+    }
+    
+    alert('選択した講義を削除しました。');
+    toggleDeleteMode();
+    loadRegisteredCourses();
+  } catch (error) {
+    console.error('Error deleting courses:', error);
+    alert('削除に失敗しました。');
+  }
 }
 
 // Grades View Functions
@@ -380,8 +512,8 @@ function renderRegisteredCourses(filterStatus = '') {
   const tbody = document.getElementById('registeredCoursesList');
   tbody.innerHTML = '';
   
-  const filtered = filterStatus 
-    ? registeredCourses.filter(c => c.status === filterStatus)
+  const filtered = filterStatus !== '' 
+    ? registeredCourses.filter(c => c.status === filterStatus || (!c.status && filterStatus === ''))
     : registeredCourses;
   
   filtered.forEach(course => {
@@ -391,30 +523,35 @@ function renderRegisteredCourses(filterStatus = '') {
     // Status color
     let statusColor = '';
     let statusText = '';
-    switch(course.status) {
-      case 'completed':
-        statusColor = 'bg-green-100 text-green-800';
-        statusText = '取得済';
-        break;
-      case 'registered':
-        statusColor = 'bg-yellow-100 text-yellow-800';
-        statusText = '履修中';
-        break;
-      case 'planned':
-        statusColor = 'bg-blue-100 text-blue-800';
-        statusText = '履修予定';
-        break;
-      case 'failed':
-        statusColor = 'bg-red-100 text-red-800';
-        statusText = '不合格';
-        break;
-      case 'dropped':
-        statusColor = 'bg-gray-100 text-gray-800';
-        statusText = '履修取消';
-        break;
-      default:
-        statusColor = 'bg-gray-100 text-gray-600';
-        statusText = '未設定';
+    if (!course.status || course.status === '') {
+      statusColor = '';
+      statusText = '';
+    } else {
+      switch(course.status) {
+        case 'completed':
+          statusColor = 'bg-green-100 text-green-800';
+          statusText = '取得済';
+          break;
+        case 'registered':
+          statusColor = 'bg-yellow-100 text-yellow-800';
+          statusText = '履修中';
+          break;
+        case 'planned':
+          statusColor = 'bg-blue-100 text-blue-800';
+          statusText = '履修予定';
+          break;
+        case 'failed':
+          statusColor = 'bg-red-100 text-red-800';
+          statusText = '不合格';
+          break;
+        case 'dropped':
+          statusColor = 'bg-gray-100 text-gray-800';
+          statusText = '履修取消';
+          break;
+        default:
+          statusColor = '';
+          statusText = '';
+      }
     }
     
     // Category text
@@ -441,16 +578,20 @@ function renderRegisteredCourses(filterStatus = '') {
         categoryText = '一般';
     }
     
+    // Add checkbox column for delete mode
+    let checkboxCell = deleteMode ? `<td class="px-2 py-2 border-b">
+        <input type="checkbox" class="delete-checkbox" data-course-id="${course.course_id}" onchange="toggleCourseSelection(${course.course_id})">
+      </td>` : '';
+    
     row.innerHTML = `
+      ${checkboxCell}
       <td class="px-4 py-2 border-b">${course.course_code || ''}</td>
       <td class="px-4 py-2 border-b font-medium">${course.course_name || ''}</td>
       <td class="px-4 py-2 border-b">${course.instructor || ''}</td>
-      <td class="px-4 py-2 border-b text-center">${course.credits || 1}</td>
+      <td class="px-4 py-2 border-b text-center">${course.credits || 0}</td>
       <td class="px-4 py-2 border-b">${categoryText}</td>
       <td class="px-4 py-2 border-b">
-        <span class="px-2 py-1 rounded text-xs font-medium ${statusColor}">
-          ${statusText}
-        </span>
+        ${statusText ? `<span class="px-2 py-1 rounded text-xs font-medium ${statusColor}">${statusText}</span>` : ''}
       </td>
       <td class="px-4 py-2 border-b">
         <button onclick="editCourse(${course.course_id})" class="text-blue-600 hover:text-blue-800">
@@ -467,120 +608,93 @@ function renderRegisteredCourses(filterStatus = '') {
   }
 }
 
-// Show registered courses tab
-function showRegisteredCourses() {
-  document.getElementById('registeredCoursesView').classList.remove('hidden');
-  document.getElementById('gradeEvaluationView').classList.add('hidden');
-  document.getElementById('creditSummaryView').classList.add('hidden');
-  
-  // Update tab styles
-  document.getElementById('registeredTab').className = 'px-4 py-2 font-medium text-blue-600 border-b-2 border-blue-600';
-  document.getElementById('gradeTab').className = 'px-4 py-2 font-medium text-gray-600 hover:text-gray-800';
-  document.getElementById('creditTab').className = 'px-4 py-2 font-medium text-gray-600 hover:text-gray-800';
-  
-  loadRegisteredCourses();
-}
+
 
 // Show grade evaluation tab
-function showGradeEvaluation() {
-  document.getElementById('registeredCoursesView').classList.add('hidden');
+async function showGradeEvaluation() {
   document.getElementById('gradeEvaluationView').classList.remove('hidden');
   document.getElementById('creditSummaryView').classList.add('hidden');
   
   // Update tab styles
-  document.getElementById('registeredTab').className = 'px-4 py-2 font-medium text-gray-600 hover:text-gray-800';
   document.getElementById('gradeTab').className = 'px-4 py-2 font-medium text-blue-600 border-b-2 border-blue-600';
   document.getElementById('creditTab').className = 'px-4 py-2 font-medium text-gray-600 hover:text-gray-800';
   
+  // Load registered courses if not loaded
+  if (registeredCourses.length === 0) {
+    await loadRegisteredCourses();
+  }
   renderGradeEvaluation();
 }
 
 // Render grade evaluation
 function renderGradeEvaluation() {
-  const container = document.getElementById('gradeCategoryGroups');
-  container.innerHTML = '';
+  const tbody = document.getElementById('gradeTableBody');
+  tbody.innerHTML = '';
   
-  // Group courses by category
-  const grouped = {};
-  registeredCourses.forEach(course => {
-    const category = course.category || course.course_type || 'general';
-    if (!grouped[category]) {
-      grouped[category] = [];
-    }
-    if (course.status === 'completed' || course.grade) {
-      grouped[category].push(course);
-    }
-  });
-  
-  // Render each category
-  Object.entries(grouped).forEach(([category, courses]) => {
-    if (courses.length === 0) return;
-    
-    let categoryName = '';
-    switch(category) {
-      case 'general': categoryName = '■教養科目・選択■'; break;
-      case 'specialized_required':
-      case 'required': categoryName = '■教養科目・選択必修■'; break;
-      case 'specialized_elective':
-      case 'elective': categoryName = '■専門・必修■'; break;
-      case 'foreign_language': categoryName = '■外国語科目・必修■'; break;
-      case 'free': categoryName = '■体育科目・選択必修■'; break;
-      default: categoryName = '■その他■';
-    }
-    
-    const categoryDiv = document.createElement('div');
-    categoryDiv.className = 'bg-white rounded-lg shadow mb-4';
-    
-    let tableHtml = `
-      <div class="p-4 bg-pink-50 border-b">
-        <h4 class="font-semibold">${categoryName}</h4>
-      </div>
-      <div class="overflow-x-auto">
-        <table class="w-full">
-          <thead>
-            <tr class="bg-gray-50 text-left text-sm">
-              <th class="px-4 py-2 border-b">分野系列名／科目名</th>
-              <th class="px-4 py-2 border-b text-center">単位</th>
-              <th class="px-4 py-2 border-b text-center">評価</th>
-              <th class="px-4 py-2 border-b text-center">年度</th>
-              <th class="px-4 py-2 border-b text-center">期間</th>
-            </tr>
-          </thead>
-          <tbody>
-    `;
-    
-    courses.forEach(course => {
-      const gradeDisplay = userSettings?.grade_display_format === 'alphabet' 
-        ? convertGrade(course.grade, 'alphabet')
-        : course.grade || '-';
-      
-      const gradeColor = course.grade === '不可' || course.grade === 'E' 
-        ? 'text-red-600' 
-        : '';
-      
-      tableHtml += `
-        <tr class="hover:bg-gray-50">
-          <td class="px-4 py-2 border-b">${course.course_name}</td>
-          <td class="px-4 py-2 border-b text-center">${course.credits || 1}</td>
-          <td class="px-4 py-2 border-b text-center ${gradeColor}">${gradeDisplay}</td>
-          <td class="px-4 py-2 border-b text-center">${course.year || new Date().getFullYear()}</td>
-          <td class="px-4 py-2 border-b text-center">${course.quarter || '通年'}</td>
-        </tr>
-      `;
+  // Filter and sort courses with grades
+  const gradedCourses = registeredCourses
+    .filter(course => course.status === 'completed' || course.grade)
+    .sort((a, b) => {
+      // Sort by category first, then by course name
+      const categoryOrder = ['general', 'foreign_language', 'specialized_required', 'specialized_elective', 'free'];
+      const catA = categoryOrder.indexOf(a.category || a.course_type || 'general');
+      const catB = categoryOrder.indexOf(b.category || b.course_type || 'general');
+      if (catA !== catB) return catA - catB;
+      return (a.course_name || '').localeCompare(b.course_name || '');
     });
+  
+  let lastCategory = '';
+  gradedCourses.forEach(course => {
+    const category = course.category || course.course_type || 'general';
     
-    tableHtml += `
-          </tbody>
-        </table>
-      </div>
+    // Add category header row if category changed
+    if (category !== lastCategory) {
+      let categoryName = '';
+      switch(category) {
+        case 'general': categoryName = '■教養科目■'; break;
+        case 'specialized_required':
+        case 'required': categoryName = '■専門必修■'; break;
+        case 'specialized_elective':
+        case 'elective': categoryName = '■専門選択■'; break;
+        case 'foreign_language': categoryName = '■外国語科目■'; break;
+        case 'free': categoryName = '■自由科目■'; break;
+        default: categoryName = '■その他■';
+      }
+      
+      const headerRow = document.createElement('tr');
+      headerRow.className = 'bg-pink-100';
+      headerRow.innerHTML = `
+        <td colspan="5" class="px-4 py-2 font-semibold">${categoryName}</td>
+      `;
+      tbody.appendChild(headerRow);
+      lastCategory = category;
+    }
+    
+    // Add course row
+    const row = document.createElement('tr');
+    row.className = 'hover:bg-gray-50';
+    
+    const gradeDisplay = userSettings?.grade_display_format === 'alphabet' 
+      ? convertGrade(course.grade, 'alphabet')
+      : course.grade || '-';
+    
+    const gradeColor = course.grade === '不可' || course.grade === 'E' 
+      ? 'text-red-600' 
+      : '';
+    
+    row.innerHTML = `
+      <td class="px-4 py-2 border-b">${course.course_name}</td>
+      <td class="px-4 py-2 border-b text-center">${course.credits || 0}</td>
+      <td class="px-4 py-2 border-b text-center ${gradeColor}">${gradeDisplay}</td>
+      <td class="px-4 py-2 border-b text-center">${course.year || new Date().getFullYear()}</td>
+      <td class="px-4 py-2 border-b text-center">${course.quarter || '通年'}</td>
     `;
     
-    categoryDiv.innerHTML = tableHtml;
-    container.appendChild(categoryDiv);
+    tbody.appendChild(row);
   });
   
-  if (container.innerHTML === '') {
-    container.innerHTML = '<div class="bg-white rounded-lg shadow p-6 text-center text-gray-500">評価済みの講義はありません</div>';
+  if (gradedCourses.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-gray-500">評価済みの講義はありません</td></tr>';
   }
 }
 
@@ -608,12 +722,10 @@ function convertGrade(grade, format) {
 
 // Show credit summary tab
 async function showCreditSummary() {
-  document.getElementById('registeredCoursesView').classList.add('hidden');
   document.getElementById('gradeEvaluationView').classList.add('hidden');
   document.getElementById('creditSummaryView').classList.remove('hidden');
   
   // Update tab styles
-  document.getElementById('registeredTab').className = 'px-4 py-2 font-medium text-gray-600 hover:text-gray-800';
   document.getElementById('gradeTab').className = 'px-4 py-2 font-medium text-gray-600 hover:text-gray-800';
   document.getElementById('creditTab').className = 'px-4 py-2 font-medium text-blue-600 border-b-2 border-blue-600';
   
