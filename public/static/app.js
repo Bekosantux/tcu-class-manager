@@ -1214,7 +1214,7 @@ async function addDummyData() {
   }
   
   try {
-    const response = await fetch('/api/debug/reset-all', { method: 'POST' });
+    const response = await fetch('/api/debug/add-dummy-data', { method: 'POST' });
     const result = await response.json();
     
     if (response.ok) {

@@ -362,23 +362,77 @@ app.post('/api/debug/reset-all', async (c) => {
   const { DB } = c.env;
   
   try {
-    // Drop all tables
+    // Delete in correct order to respect foreign key constraints
     await DB.prepare('DELETE FROM registrations').run();
-    await DB.prepare('DELETE FROM course_schedules').run();
+    await DB.prepare('DELETE FROM course_schedules').run(); 
     await DB.prepare('DELETE FROM courses').run();
     await DB.prepare('DELETE FROM user_settings').run();
     
-    // Load and execute seed data
-    const seedResponse = await fetch('/static/seed.sql');
-    if (seedResponse.ok) {
-      const seedSql = await seedResponse.text();
-      const statements = seedSql.split(';').filter(s => s.trim());
-      
-      for (const stmt of statements) {
-        if (stmt.trim()) {
-          await DB.prepare(stmt).run();
-        }
-      }
+    // Insert user settings
+    await DB.prepare(`
+      INSERT INTO user_settings (
+        id, faculty, department, admission_year, current_grade,
+        grade_requirements, graduation_requirements, grade_display_format
+      ) VALUES (
+        1, '理工学部', '情報科学科', 2022, 3,
+        '{"秀": 90, "優": 80, "良": 70, "可": 60}',
+        '{"総単位": 124, "必修": 60, "選択": 40, "一般教養": 24}',
+        'japanese'
+      )
+    `).run();
+    
+    // Insert sample courses
+    const courses = [
+      ['CS101', 'プログラミング基礎', 2024, '理工学部', '情報科学科', '22C教室', '山田太郎', 'A', '1年', 1, '{"受講対象":[{"最大入学年度":24,"最小入学年度":22,"対象学部":["理工学部"]}]}', false, 2, 'required', '必修科目'],
+      ['CS102', 'データ構造とアルゴリズム', 2024, '理工学部', '情報科学科', '21B教室', '鈴木一郎', 'B', '2年', 2, '{"受講対象":[{"最大入学年度":23,"最小入学年度":21,"対象学部":["理工学部"]}]}', false, 2, 'required', '必修科目'],
+      ['MATH101', '線形代数学I', 2024, '理工学部', '共通', '11A教室', '田中花子', '', '1年', 1, '{"受講対象":[{"最大入学年度":24,"最小入学年度":20,"対象学部":["理工学部","建築都市デザイン学部"]}]}', false, 2, 'required', '必修科目'],
+      ['CS301', '人工知能基礎', 2024, '理工学部', '情報科学科', '24A教室', '渡辺五郎', '', '3年', 3, '{"受講対象":[{"最大入学年度":22,"最小入学年度":20,"対象学部":["理工学部"]}]}', false, 2, 'elective', '選択科目'],
+      ['CS501', 'プロジェクト実習', 2024, '理工学部', '情報科学科', '実習室', '複数教員', '', '3年', 3, '{"受講対象":[{"最大入学年度":22,"最小入学年度":20,"対象学部":["理工学部"]}]}', false, 4, 'required', '通年・必修科目']
+    ];
+    
+    for (const course of courses) {
+      await DB.prepare(`
+        INSERT INTO courses (
+          course_code, course_name, year, faculty, department, classroom,
+          instructor, class_group, target_students, target_year, enrollment_target,
+          starts_at_nine, credits, course_type, remarks
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(...course).run();
+    }
+    
+    // Insert sample schedules
+    const schedules = [
+      [1, 'monday', 1, 'Q1'],
+      [1, 'wednesday', 1, 'Q1'],
+      [2, 'tuesday', 2, 'Q1'],
+      [2, 'thursday', 2, 'Q1'],
+      [3, 'monday', 3, 'Q1'],
+      [3, 'wednesday', 3, 'Q1'],
+      [4, 'monday', 2, 'Q3'],
+      [4, 'wednesday', 2, 'Q3'],
+      [5, 'friday', 5, 'full_year']
+    ];
+    
+    for (const schedule of schedules) {
+      await DB.prepare(`
+        INSERT INTO course_schedules (course_id, day_of_week, period, quarter)
+        VALUES (?, ?, ?, ?)
+      `).bind(...schedule).run();
+    }
+    
+    // Insert sample registrations
+    const registrations = [
+      [1, 1, 2024, 'Q1', 'completed', '優'],
+      [1, 3, 2024, 'Q1', 'completed', '秀'],
+      [1, 4, 2024, 'Q3', 'registered', null],
+      [1, 5, 2024, 'full_year', 'registered', null]
+    ];
+    
+    for (const reg of registrations) {
+      await DB.prepare(`
+        INSERT INTO registrations (user_id, course_id, year, quarter, status, grade)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).bind(...reg).run();
     }
     
     return c.json({ success: true, message: 'All data reset with dummy data' });
@@ -393,6 +447,7 @@ app.post('/api/debug/clear-all', async (c) => {
   const { DB } = c.env;
   
   try {
+    // Delete in correct order to respect foreign key constraints
     await DB.prepare('DELETE FROM registrations').run();
     await DB.prepare('DELETE FROM course_schedules').run();
     await DB.prepare('DELETE FROM courses').run();
@@ -416,6 +471,67 @@ app.post('/api/debug/clear-user-settings', async (c) => {
   } catch (error) {
     console.error('Error clearing user settings:', error);
     return c.json({ error: 'Failed to clear user settings', details: error.message }, 500);
+  }
+});
+
+// Debug API: Add dummy data (keep existing data)
+app.post('/api/debug/add-dummy-data', async (c) => {
+  const { DB } = c.env;
+  
+  try {
+    // Check if user settings exist, if not add them
+    const userExists = await DB.prepare('SELECT id FROM user_settings WHERE id = 1').first();
+    if (!userExists) {
+      await DB.prepare(`
+        INSERT INTO user_settings (
+          id, faculty, department, admission_year, current_grade,
+          grade_requirements, graduation_requirements, grade_display_format
+        ) VALUES (
+          1, '理工学部', '情報科学科', 2022, 3,
+          '{"秀": 90, "優": 80, "良": 70, "可": 60}',
+          '{"総単位": 124, "必修": 60, "選択": 40, "一般教養": 24}',
+          'japanese'
+        )
+      `).run();
+    }
+    
+    // Add some additional courses (with unique codes to avoid conflicts)
+    const timestamp = Date.now();
+    const additionalCourses = [
+      [`TEST${timestamp}1`, 'テスト講義1', 2024, '理工学部', '情報科学科', 'T1教室', 'テスト講師1', '', '2年', 2, '{"受講対象":[{"最大入学年度":24,"最小入学年度":20,"対象学部":["理工学部"]}]}', false, 2, 'elective', 'テスト科目'],
+      [`TEST${timestamp}2`, 'テスト講義2', 2024, '理工学部', '情報科学科', 'T2教室', 'テスト講師2', '', '3年', 3, '{"受講対象":[{"最大入学年度":23,"最小入学年度":19,"対象学部":["理工学部"]}]}', false, 2, 'elective', 'テスト科目']
+    ];
+    
+    for (const course of additionalCourses) {
+      await DB.prepare(`
+        INSERT INTO courses (
+          course_code, course_name, year, faculty, department, classroom,
+          instructor, class_group, target_students, target_year, enrollment_target,
+          starts_at_nine, credits, course_type, remarks
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(...course).run();
+    }
+    
+    // Get the IDs of the newly added courses
+    const newCourses = await DB.prepare(`
+      SELECT id FROM courses WHERE course_code LIKE 'TEST${timestamp}%'
+    `).all();
+    
+    // Add schedules for new courses
+    if (newCourses.results && newCourses.results.length > 0) {
+      for (let i = 0; i < newCourses.results.length; i++) {
+        const courseId = newCourses.results[i].id;
+        await DB.prepare(`
+          INSERT INTO course_schedules (course_id, day_of_week, period, quarter)
+          VALUES (?, ?, ?, ?)
+        `).bind(courseId, 'friday', i + 1, 'Q2').run();
+      }
+    }
+    
+    return c.json({ success: true, message: 'Dummy data added successfully' });
+  } catch (error) {
+    console.error('Error adding dummy data:', error);
+    return c.json({ error: 'Failed to add dummy data', details: error.message }, 500);
   }
 });
 
