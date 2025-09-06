@@ -207,9 +207,11 @@
 
 ## デプロイメント
 - **プラットフォーム**: Cloudflare Pages
-- **ステータス**: ❌ 未デプロイ
+- **ステータス**: ✅ デプロイ済み
+- **本番URL**: https://b097464b.project-981c4582.pages.dev
 - **技術スタック**: Hono + TypeScript + Cloudflare D1 + TailwindCSS
 - **最終更新**: 2025-09-06
+- **GitHubリポジトリ**: https://github.com/Bekosantux/tcu-class-manager
 
 ## 更新履歴
 - **2025-09-06 (修正対応)**: デバッグメニューのエラー修正
