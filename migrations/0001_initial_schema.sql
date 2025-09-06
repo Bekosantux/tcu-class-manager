@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS courses (
   instructor TEXT,
   class_group TEXT,
   target_students TEXT,
+  enrollment_target TEXT, -- JSON形式で受講対象を保存
   starts_at_nine BOOLEAN DEFAULT FALSE,
   credits INTEGER DEFAULT 1,
   course_type TEXT, -- 'required', 'elective', 'general'

@@ -328,13 +328,13 @@ function renderTimetable() {
     saturday: '土'
   };
   
-  // Update table header
+  // Update table header with fixed width for period column
   const table = tbody.closest('table');
   const thead = table.querySelector('thead');
   thead.innerHTML = `
     <tr class="bg-gray-100">
-      <th class="border p-2 w-16" style="width: 64px; min-width: 64px; max-width: 64px;">時限</th>
-      ${daysToShow.map(day => `<th class="border p-2">${dayNames[day]}</th>`).join('')}
+      <th class="border p-2" style="width: 80px; min-width: 80px; max-width: 80px;">時限</th>
+      ${daysToShow.map(day => `<th class="border p-2" style="width: calc((100% - 80px) / ${daysToShow.length});">${dayNames[day]}</th>`).join('')}
     </tr>
   `;
   
@@ -344,20 +344,20 @@ function renderTimetable() {
     // Add striped background for even rows
     row.className = period % 2 === 0 ? 'bg-gray-50 hover:bg-gray-100' : 'hover:bg-gray-50';
     
-    // Period column
+    // Period column with fixed width
     const periodCell = document.createElement('td');
-    periodCell.className = 'border p-2 text-center font-semibold bg-gray-100 w-16';
-    periodCell.style.width = '64px';
-    periodCell.style.minWidth = '64px';
-    periodCell.style.maxWidth = '64px';
+    periodCell.className = 'border p-2 text-center font-semibold bg-gray-100';
+    periodCell.style.width = '80px';
+    periodCell.style.minWidth = '80px';
+    periodCell.style.maxWidth = '80px';
     periodCell.textContent = `${period}限`;
     row.appendChild(periodCell);
     
-    // Day columns
+    // Day columns with equal width
     daysToShow.forEach(day => {
       const cell = document.createElement('td');
       cell.className = 'border p-2 h-20 relative';
-      cell.style.width = `${100 / (daysToShow.length + 1)}%`; // Equal width
+      cell.style.width = `calc((100% - 80px) / ${daysToShow.length})`;
       
       const course = timetable[period][day];
       if (course) {
@@ -855,12 +855,13 @@ async function editCourse(courseId) {
   
   currentEditingCourse = course;
   
-  // Populate form
+  // Populate form - Fixed: target_students should be for editTargetYear, year for editCourseYear
   document.getElementById('editCourseId').value = course.course_id;
   document.getElementById('editCourseCode').value = course.course_code || '';
   document.getElementById('editCourseName').value = course.course_name || '';
-  document.getElementById('editCourseYear').value = course.course_year || new Date().getFullYear();
-  document.getElementById('editTargetYear').value = course.year || course.course_year || 1;
+  document.getElementById('editCourseYear').value = course.year || course.course_year || new Date().getFullYear();
+  document.getElementById('editTargetYear').value = course.target_students || '1';
+  document.getElementById('editEnrollmentTarget').value = course.enrollment_target || '{}';
   document.getElementById('editInstructor').value = course.instructor || '';
   document.getElementById('editClassroom').value = course.classroom || '';
   document.getElementById('editCredits').value = course.credits || 0;
@@ -1022,7 +1023,9 @@ async function saveCourseEdit() {
   
   const courseData = {
     course_name: document.getElementById('editCourseName').value,
-    course_year: parseInt(document.getElementById('editCourseYear').value) || new Date().getFullYear(),
+    year: parseInt(document.getElementById('editCourseYear').value) || new Date().getFullYear(),
+    target_students: document.getElementById('editTargetYear').value,
+    enrollment_target: document.getElementById('editEnrollmentTarget').value,
     instructor: document.getElementById('editInstructor').value,
     classroom: document.getElementById('editClassroom').value,
     credits: parseFloat(document.getElementById('editCredits').value) || 0,

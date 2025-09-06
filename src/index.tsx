@@ -174,6 +174,8 @@ app.get('/api/registrations', async (c) => {
         c.course_type,
         c.category,
         c.year as course_year,
+        c.target_students,
+        c.enrollment_target,
         c.remarks
       FROM registrations r
       INNER JOIN courses c ON r.course_id = c.id
@@ -292,7 +294,8 @@ app.put('/api/courses/:id', async (c) => {
     await DB.prepare(`
       UPDATE courses 
       SET course_name = ?, instructor = ?, classroom = ?, credits = ?, 
-          category = ?, course_type = ?, course_year = ?, remarks = ?, updated_at = CURRENT_TIMESTAMP
+          category = ?, course_type = ?, year = ?, target_students = ?, 
+          enrollment_target = ?, remarks = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `).bind(
       body.course_name,
@@ -301,7 +304,9 @@ app.put('/api/courses/:id', async (c) => {
       body.credits,
       body.category,
       body.course_type,
-      body.course_year,
+      body.year,
+      body.target_students,
+      body.enrollment_target,
       body.remarks,
       courseId
     ).run();
@@ -716,7 +721,7 @@ app.get('/', (c) => {
                                 </div>
                                 <div>
                                     <label class="block text-sm font-medium text-gray-700 mb-1">対象学年</label>
-                                    <input type="number" id="editTargetYear" class="w-full border rounded px-3 py-2" min="1" max="4">
+                                    <input type="text" id="editTargetYear" class="w-full border rounded px-3 py-2" placeholder="例: 1年, 2-3年">
                                 </div>
                             </div>
                             
@@ -771,6 +776,12 @@ app.get('/', (c) => {
                                         <option value="不可">不可</option>
                                     </select>
                                 </div>
+                            </div>
+                            
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">受講対象</label>
+                                <textarea id="editEnrollmentTarget" class="w-full border rounded px-3 py-2" rows="3" placeholder='{"受講対象":[{"最大入学年度":24,"最小入学年度":22,"対象学部":["理工学部"]}]}'></textarea>
+                                <p class="text-xs text-gray-500 mt-1">JSON形式で受講対象を指定。留年者などの受講条件判定に使用</p>
                             </div>
                             
                             <div>
