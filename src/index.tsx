@@ -66,6 +66,7 @@ app.post('/api/settings', async (c) => {
 app.get('/api/timetable', async (c) => {
   const { DB } = c.env;
   const quarter = c.req.query('quarter') || 'Q1';
+  const year = c.req.query('year') || new Date().getFullYear().toString();
   
   try {
     const result = await DB.prepare(`
@@ -75,13 +76,14 @@ app.get('/api/timetable', async (c) => {
         cs.period,
         cs.quarter,
         r.status,
-        r.grade
+        r.grade,
+        r.year as registration_year
       FROM courses c
       INNER JOIN course_schedules cs ON c.id = cs.course_id
-      LEFT JOIN registrations r ON c.id = r.course_id
-      WHERE cs.quarter = ? OR cs.quarter = 'full_year' OR cs.quarter LIKE '%' || ? || '%'
+      LEFT JOIN registrations r ON c.id = r.course_id AND r.year = ?
+      WHERE (cs.quarter = ? OR cs.quarter = 'full_year' OR cs.quarter LIKE '%' || ? || '%')
       ORDER BY cs.day_of_week, cs.period
-    `).bind(quarter, quarter).all();
+    `).bind(parseInt(year), quarter, quarter).all();
     
     return c.json(result.results || []);
   } catch (error) {
@@ -285,6 +287,7 @@ app.put('/api/courses/:id', async (c) => {
   const body = await c.req.json();
   
   try {
+    // Update course basic information
     await DB.prepare(`
       UPDATE courses 
       SET course_name = ?, instructor = ?, classroom = ?, credits = ?, 
@@ -301,10 +304,45 @@ app.put('/api/courses/:id', async (c) => {
       courseId
     ).run();
     
+    // Update schedules if provided
+    if (body.schedules && Array.isArray(body.schedules)) {
+      // Delete existing schedules
+      await DB.prepare(`
+        DELETE FROM course_schedules WHERE course_id = ?
+      `).bind(courseId).run();
+      
+      // Insert new schedules
+      for (const schedule of body.schedules) {
+        if (schedule.day_of_week && schedule.period && schedule.quarter) {
+          await DB.prepare(`
+            INSERT INTO course_schedules (course_id, day_of_week, period, quarter)
+            VALUES (?, ?, ?, ?)
+          `).bind(courseId, schedule.day_of_week, schedule.period, schedule.quarter).run();
+        }
+      }
+    }
+    
     return c.json({ success: true });
   } catch (error) {
     console.error('Error updating course:', error);
-    return c.json({ error: 'Failed to update course' }, 500);
+    return c.json({ error: 'Failed to update course', details: error.message }, 500);
+  }
+});
+
+// Get course schedules
+app.get('/api/courses/:id/schedules', async (c) => {
+  const { DB } = c.env;
+  const courseId = c.req.param('id');
+  
+  try {
+    const result = await DB.prepare(`
+      SELECT * FROM course_schedules WHERE course_id = ?
+    `).bind(courseId).all();
+    
+    return c.json(result.results || []);
+  } catch (error) {
+    console.error('Error fetching schedules:', error);
+    return c.json({ error: 'Failed to fetch schedules' }, 500);
   }
 });
 
@@ -380,22 +418,23 @@ app.get('/', (c) => {
                         </ul>
                     </nav>
                     
-                    <!-- 講義時間表 -->
-                    <div class="mt-6 p-3 bg-gray-700 rounded">
-                        <h3 class="text-sm font-semibold mb-2 text-gray-300">講義時間</h3>
-                        <table class="w-full text-xs text-gray-300">
-                            <tbody>
-                                <tr><td class="py-1">1時限</td><td class="text-right">9:20~11:00</td></tr>
-                                <tr><td class="py-1">2時限</td><td class="text-right">11:10~12:50</td></tr>
-                                <tr><td class="py-1">3時限</td><td class="text-right">13:40~15:20</td></tr>
-                                <tr><td class="py-1">4時限</td><td class="text-right">15:30~17:10</td></tr>
-                                <tr><td class="py-1">5時限</td><td class="text-right">17:20~19:00</td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                    
-                    <!-- 個人設定を最下部に配置 -->
+                    <!-- 個人設定と講義時間表を最下部に配置 -->
                     <div class="absolute bottom-4 left-0 right-0 px-4">
+                        <!-- 講義時間表 -->
+                        <div class="mb-4 p-3 bg-gray-700 rounded">
+                            <h3 class="text-sm font-semibold mb-2 text-gray-300">講義時間</h3>
+                            <table class="w-full text-xs text-gray-300">
+                                <tbody>
+                                    <tr><td class="py-1">1時限</td><td class="text-right">9:20~11:00</td></tr>
+                                    <tr><td class="py-1">2時限</td><td class="text-right">11:10~12:50</td></tr>
+                                    <tr><td class="py-1">3時限</td><td class="text-right">13:40~15:20</td></tr>
+                                    <tr><td class="py-1">4時限</td><td class="text-right">15:30~17:10</td></tr>
+                                    <tr><td class="py-1">5時限</td><td class="text-right">17:20~19:00</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        
+                        <!-- 個人設定 -->
                         <a href="#" onclick="showSettings(); toggleSidebar();" class="block px-4 py-2 rounded hover:bg-gray-700 transition-colors text-gray-300">
                             <i class="fas fa-cog mr-2"></i>個人設定
                         </a>
@@ -438,7 +477,7 @@ app.get('/', (c) => {
                         <table class="w-full min-w-[800px]">
                             <thead>
                                 <tr class="bg-gray-100">
-                                    <th class="border p-2 w-20">時限</th>
+                                    <th class="border p-2 w-16">時限</th>
                                     <th class="border p-2">月</th>
                                     <th class="border p-2">火</th>
                                     <th class="border p-2">水</th>

@@ -273,7 +273,7 @@ function hideAllViews() {
 // Load timetable
 async function loadTimetable() {
   try {
-    const response = await fetch(`/api/timetable?quarter=${currentQuarter}`);
+    const response = await fetch(`/api/timetable?quarter=${currentQuarter}&year=${currentYear}`);
     timetableData = await response.json();
     renderTimetable();
   } catch (error) {
@@ -317,11 +317,8 @@ function renderTimetable() {
     }
   });
   
-  // Always show at least Monday-Friday
-  ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'].forEach(day => daysWithCourses.add(day));
-  
-  // Create header with only days that have courses
-  const daysToShow = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'].filter(day => daysWithCourses.has(day));
+  // Always show Monday-Saturday
+  const daysToShow = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
   const dayNames = {
     monday: '月',
     tuesday: '火',
@@ -336,7 +333,7 @@ function renderTimetable() {
   const thead = table.querySelector('thead');
   thead.innerHTML = `
     <tr class="bg-gray-100">
-      <th class="border p-2 w-20">時限</th>
+      <th class="border p-2" style="width: 60px;">時限</th>
       ${daysToShow.map(day => `<th class="border p-2">${dayNames[day]}</th>`).join('')}
     </tr>
   `;
@@ -344,11 +341,13 @@ function renderTimetable() {
   // Render regular timetable
   for (let period = 1; period <= 5; period++) {
     const row = document.createElement('tr');
-    row.className = 'hover:bg-gray-50';
+    // Add striped background for even rows
+    row.className = period % 2 === 0 ? 'bg-gray-50 hover:bg-gray-100' : 'hover:bg-gray-50';
     
     // Period column
     const periodCell = document.createElement('td');
-    periodCell.className = 'border p-2 text-center font-semibold bg-gray-50';
+    periodCell.className = 'border p-2 text-center font-semibold bg-gray-100';
+    periodCell.style.width = '60px';
     periodCell.textContent = `${period}限`;
     row.appendChild(periodCell);
     
@@ -365,12 +364,12 @@ function renderTimetable() {
           ? 'bg-blue-100 p-2 rounded cursor-pointer hover:bg-blue-200 h-full overflow-hidden'
           : 'bg-gray-100 p-2 rounded cursor-pointer hover:bg-gray-200 h-full overflow-hidden';
         
-        // Truncate text with ellipsis
-        const courseName = course.course_name.length > 10 
-          ? course.course_name.substring(0, 10) + '...' 
+        // Truncate text with ellipsis (increased limits)
+        const courseName = course.course_name.length > 20 
+          ? course.course_name.substring(0, 20) + '...' 
           : course.course_name;
-        const instructor = course.instructor && course.instructor.length > 8
-          ? course.instructor.substring(0, 8) + '...'
+        const instructor = course.instructor && course.instructor.length > 30
+          ? course.instructor.substring(0, 30) + '...'
           : course.instructor;
         
         courseDiv.innerHTML = `
@@ -822,7 +821,7 @@ function filterCourses() {
 }
 
 // Edit course
-function editCourse(courseId) {
+async function editCourse(courseId) {
   const course = registeredCourses.find(c => c.course_id === courseId);
   if (!course) return;
   
@@ -834,9 +833,9 @@ function editCourse(courseId) {
   document.getElementById('editCourseName').value = course.course_name || '';
   document.getElementById('editInstructor').value = course.instructor || '';
   document.getElementById('editClassroom').value = course.classroom || '';
-  document.getElementById('editCredits').value = course.credits || 1;
+  document.getElementById('editCredits').value = course.credits || 0;
   document.getElementById('editCategory').value = course.category || course.course_type || 'general';
-  document.getElementById('editStatus').value = course.status || 'registered';
+  document.getElementById('editStatus').value = course.status || '';
   document.getElementById('editGrade').value = course.grade || '';
   document.getElementById('editRemarks').value = course.remarks || '';
   
@@ -854,8 +853,119 @@ function editCourse(courseId) {
     gradeSelect.value = convertGrade(course.grade, 'alphabet');
   }
   
+  // Load and display schedules
+  try {
+    const response = await fetch(`/api/courses/${courseId}/schedules`);
+    const schedules = await response.json();
+    renderScheduleEditor(schedules);
+  } catch (error) {
+    console.error('Error loading schedules:', error);
+    renderScheduleEditor([]);
+  }
+  
   // Show modal
   document.getElementById('courseEditModal').classList.remove('hidden');
+}
+
+// Render schedule editor
+function renderScheduleEditor(schedules) {
+  const container = document.getElementById('scheduleEditor');
+  container.innerHTML = '';
+  
+  if (schedules.length === 0) {
+    schedules = [{ day_of_week: '', period: '', quarter: '' }];
+  }
+  
+  schedules.forEach((schedule, index) => {
+    const row = document.createElement('div');
+    row.className = 'flex gap-2 items-center';
+    row.innerHTML = `
+      <select class="schedule-day flex-1 border rounded px-2 py-1">
+        <option value="">曜日</option>
+        <option value="monday" ${schedule.day_of_week === 'monday' ? 'selected' : ''}>月</option>
+        <option value="tuesday" ${schedule.day_of_week === 'tuesday' ? 'selected' : ''}>火</option>
+        <option value="wednesday" ${schedule.day_of_week === 'wednesday' ? 'selected' : ''}>水</option>
+        <option value="thursday" ${schedule.day_of_week === 'thursday' ? 'selected' : ''}>木</option>
+        <option value="friday" ${schedule.day_of_week === 'friday' ? 'selected' : ''}>金</option>
+        <option value="saturday" ${schedule.day_of_week === 'saturday' ? 'selected' : ''}>土</option>
+        <option value="intensive" ${schedule.day_of_week === 'intensive' ? 'selected' : ''}>集中</option>
+      </select>
+      <select class="schedule-period flex-1 border rounded px-2 py-1">
+        <option value="">時限</option>
+        <option value="1" ${schedule.period == 1 ? 'selected' : ''}>1限</option>
+        <option value="2" ${schedule.period == 2 ? 'selected' : ''}>2限</option>
+        <option value="3" ${schedule.period == 3 ? 'selected' : ''}>3限</option>
+        <option value="4" ${schedule.period == 4 ? 'selected' : ''}>4限</option>
+        <option value="5" ${schedule.period == 5 ? 'selected' : ''}>5限</option>
+        <option value="0" ${schedule.period == 0 ? 'selected' : ''}>その他</option>
+      </select>
+      <select class="schedule-quarter flex-1 border rounded px-2 py-1">
+        <option value="">期間</option>
+        <option value="Q1" ${schedule.quarter === 'Q1' ? 'selected' : ''}>Q1</option>
+        <option value="Q2" ${schedule.quarter === 'Q2' ? 'selected' : ''}>Q2</option>
+        <option value="Q3" ${schedule.quarter === 'Q3' ? 'selected' : ''}>Q3</option>
+        <option value="Q4" ${schedule.quarter === 'Q4' ? 'selected' : ''}>Q4</option>
+        <option value="Q1-Q2" ${schedule.quarter === 'Q1-Q2' ? 'selected' : ''}>前期</option>
+        <option value="Q3-Q4" ${schedule.quarter === 'Q3-Q4' ? 'selected' : ''}>後期</option>
+        <option value="full_year" ${schedule.quarter === 'full_year' ? 'selected' : ''}>通年</option>
+      </select>
+      <button onclick="removeScheduleRow(this)" class="text-red-600 hover:text-red-800">
+        <i class="fas fa-times"></i>
+      </button>
+    `;
+    container.appendChild(row);
+  });
+}
+
+// Add schedule row
+function addScheduleRow() {
+  const container = document.getElementById('scheduleEditor');
+  const row = document.createElement('div');
+  row.className = 'flex gap-2 items-center';
+  row.innerHTML = `
+    <select class="schedule-day flex-1 border rounded px-2 py-1">
+      <option value="">曜日</option>
+      <option value="monday">月</option>
+      <option value="tuesday">火</option>
+      <option value="wednesday">水</option>
+      <option value="thursday">木</option>
+      <option value="friday">金</option>
+      <option value="saturday">土</option>
+      <option value="intensive">集中</option>
+    </select>
+    <select class="schedule-period flex-1 border rounded px-2 py-1">
+      <option value="">時限</option>
+      <option value="1">1限</option>
+      <option value="2">2限</option>
+      <option value="3">3限</option>
+      <option value="4">4限</option>
+      <option value="5">5限</option>
+      <option value="0">その他</option>
+    </select>
+    <select class="schedule-quarter flex-1 border rounded px-2 py-1">
+      <option value="">期間</option>
+      <option value="Q1">Q1</option>
+      <option value="Q2">Q2</option>
+      <option value="Q3">Q3</option>
+      <option value="Q4">Q4</option>
+      <option value="Q1-Q2">前期</option>
+      <option value="Q3-Q4">後期</option>
+      <option value="full_year">通年</option>
+    </select>
+    <button onclick="removeScheduleRow(this)" class="text-red-600 hover:text-red-800">
+      <i class="fas fa-times"></i>
+    </button>
+  `;
+  container.appendChild(row);
+}
+
+// Remove schedule row
+function removeScheduleRow(button) {
+  const row = button.parentElement;
+  const container = document.getElementById('scheduleEditor');
+  if (container.children.length > 1) {
+    row.remove();
+  }
 }
 
 // Close edit modal
@@ -868,50 +978,76 @@ function closeEditModal() {
 async function saveCourseEdit() {
   const courseId = document.getElementById('editCourseId').value;
   
+  // Collect schedule data
+  const schedules = [];
+  const scheduleRows = document.getElementById('scheduleEditor').children;
+  for (const row of scheduleRows) {
+    const day = row.querySelector('.schedule-day').value;
+    const period = row.querySelector('.schedule-period').value;
+    const quarter = row.querySelector('.schedule-quarter').value;
+    if (day && period && quarter) {
+      schedules.push({ day_of_week: day, period: parseInt(period), quarter });
+    }
+  }
+  
   const courseData = {
     course_name: document.getElementById('editCourseName').value,
     instructor: document.getElementById('editInstructor').value,
     classroom: document.getElementById('editClassroom').value,
-    credits: parseFloat(document.getElementById('editCredits').value),
+    credits: parseFloat(document.getElementById('editCredits').value) || 0,
     category: document.getElementById('editCategory').value,
     course_type: document.getElementById('editCategory').value,
-    remarks: document.getElementById('editRemarks').value
+    remarks: document.getElementById('editRemarks').value,
+    schedules: schedules
   };
   
   const registrationData = {
-    status: document.getElementById('editStatus').value,
-    grade: document.getElementById('editGrade').value,
+    status: document.getElementById('editStatus').value || null,
+    grade: document.getElementById('editGrade').value || null,
     grade_format: userSettings?.grade_display_format || 'japanese'
   };
   
   try {
     // Update course information
-    await fetch(`/api/courses/${courseId}`, {
+    const courseResponse = await fetch(`/api/courses/${courseId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(courseData)
     });
     
+    if (!courseResponse.ok) {
+      const error = await courseResponse.json();
+      throw new Error(error.error || 'Failed to update course');
+    }
+    
     // Update registration information
-    await fetch(`/api/registrations/${courseId}`, {
+    const regResponse = await fetch(`/api/registrations/${courseId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(registrationData)
     });
     
+    if (!regResponse.ok) {
+      const error = await regResponse.json();
+      throw new Error(error.error || 'Failed to update registration');
+    }
+    
     alert('講義情報を更新しました');
     closeEditModal();
     
     // Reload data based on current view
-    if (!document.getElementById('registeredCoursesView').classList.contains('hidden')) {
+    if (currentView === 'registeredCoursesList') {
       loadRegisteredCourses();
-    } else if (!document.getElementById('gradeEvaluationView').classList.contains('hidden')) {
-      loadRegisteredCourses().then(() => renderGradeEvaluation());
-    } else if (!document.getElementById('creditSummaryView').classList.contains('hidden')) {
-      showCreditSummary();
+    } else if (currentView === 'grades') {
+      if (!document.getElementById('gradeEvaluationView').classList.contains('hidden')) {
+        await loadRegisteredCourses();
+        renderGradeEvaluation();
+      } else if (!document.getElementById('creditSummaryView').classList.contains('hidden')) {
+        showCreditSummary();
+      }
     }
   } catch (error) {
     console.error('Error saving course edit:', error);
-    alert('更新に失敗しました');
+    alert('更新に失敗しました: ' + error.message);
   }
 }
