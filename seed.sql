@@ -1,18 +1,20 @@
--- テスト用講義データを挿入（categoryカラムを追加）
-INSERT OR IGNORE INTO courses (course_code, course_name, year, faculty, department, classroom, instructor, class_group, target_students, starts_at_nine, credits, course_type, category, remarks) VALUES
-  ('CS101-Q1', 'プログラミング基礎', 1, '情報工学部', '情報工学科', '12A', '山田太郎', 'A', '1年生', FALSE, 2, 'required', 'specialized_required', NULL),
-  ('CS102-Q1', 'コンピュータサイエンス入門', 1, '情報工学部', '情報工学科', '21B', '佐藤花子', 'A', '1年生', FALSE, 2, 'required', 'specialized_required', NULL),
-  ('MATH101-Q1', '微積分学I', 1, '共通', NULL, '31C', '鈴木一郎', 'A', '全学科1年生', TRUE, 2, 'required', 'general', '9時開始'),
-  ('ENG101-Q1', '英語I', 1, '共通', NULL, '11A', 'Smith John', 'A', '全学科1年生', FALSE, 1, 'required', 'foreign_language', NULL),
-  ('CS201-Q2', 'データ構造とアルゴリズム', 2, '情報工学部', '情報工学科', '12B', '田中次郎', 'A', '2年生', FALSE, 2, 'required', 'specialized_required', NULL),
-  ('CS301-Q3', 'オペレーティングシステム', 3, '情報工学部', '情報工学科', '21C', '高橋三郎', 'A', '3年生', FALSE, 2, 'elective', 'specialized_elective', NULL),
-  ('CS302-Q3', 'データベース', 3, '情報工学部', '情報工学科', '22A', '伊藤四郎', 'A', '3年生', FALSE, 2, 'elective', 'specialized_elective', NULL),
-  ('CS401-INT', '卒業研究', 4, '情報工学部', '情報工学科', '研究室', '各教員', NULL, '4年生', FALSE, 8, 'required', 'specialized_required', '集中講義'),
-  ('PHYS101-Q1', '物理学I', 1, '共通', NULL, '41D', '木村太郎', 'A', '全学科1年生', FALSE, 2, 'required', 'general', NULL),
-  ('CHEM101-Q2', '化学I', 1, '共通', NULL, '42E', '林美子', 'A', '全学科1年生', FALSE, 2, 'elective', 'general', NULL),
-  ('PE101-Q1', '体育実技I', 1, '共通', NULL, '体育館', '山本健一', 'A', '全学科1年生', FALSE, 1, 'required', 'free', NULL),
-  ('CS203-Q3', 'ソフトウェア工学', 2, '情報工学部', '情報工学科', '13A', '中村次郎', 'A', '2年生', FALSE, 2, 'required', 'specialized_required', NULL),
-  ('ENG102-Q2', '英語II', 1, '共通', NULL, '11B', 'Johnson Mary', 'A', '全学科1年生', FALSE, 1, 'required', 'foreign_language', NULL);
+-- テスト用講義データを挿入（course_yearとcategoryカラムを追加）
+INSERT OR IGNORE INTO courses (course_code, course_name, year, course_year, faculty, department, classroom, instructor, class_group, target_students, starts_at_nine, credits, course_type, category, remarks) VALUES
+  ('CS101-Q1', 'プログラミング基礎', 1, 2024, '情報工学部', '情報工学科', '12A', '山田太郎', 'A', '1年生', FALSE, 2, 'required', 'specialized_required', NULL),
+  ('CS102-Q1', 'コンピュータサイエンス入門', 1, 2024, '情報工学部', '情報工学科', '21B', '佐藤花子', 'A', '1年生', FALSE, 2, 'required', 'specialized_required', NULL),
+  ('MATH101-Q1', '微積分学I', 1, 2024, '共通', NULL, '31C', '鈴木一郎', 'A', '全学科1年生', TRUE, 2, 'required', 'general', '9時開始'),
+  ('ENG101-Q1', '英語I', 1, 2024, '共通', NULL, '11A', 'Smith John', 'A', '全学科1年生', FALSE, 1, 'required', 'foreign_language', NULL),
+  ('CS201-Q2', 'データ構造とアルゴリズム', 2, 2024, '情報工学部', '情報工学科', '12B', '田中次郎', 'A', '2年生', FALSE, 2, 'required', 'specialized_required', NULL),
+  ('CS301-Q3', 'オペレーティングシステム', 3, 2024, '情報工学部', '情報工学科', '21C', '高橋三郎', 'A', '3年生', FALSE, 2, 'elective', 'specialized_elective', NULL),
+  ('CS302-Q3', 'データベース', 3, 2024, '情報工学部', '情報工学科', '22A', '伊藤四郎', 'A', '3年生', FALSE, 2, 'elective', 'specialized_elective', NULL),
+  ('CS401-INT', '卒業研究', 4, 2024, '情報工学部', '情報工学科', '研究室', '各教員', NULL, '4年生', FALSE, 8, 'required', 'specialized_required', '集中講義'),
+  ('PHYS101-Q1', '物理学I', 1, 2024, '共通', NULL, '41D', '木村太郎', 'A', '全学科1年生', FALSE, 2, 'required', 'general', NULL),
+  ('CHEM101-Q2', '化学I', 1, 2024, '共通', NULL, '42E', '林美子', 'A', '全学科1年生', FALSE, 2, 'elective', 'general', NULL),
+  ('PE101-Q1', '体育実技I', 1, 2024, '共通', NULL, '体育館', '山本健一', 'A', '全学科1年生', FALSE, 1, 'required', 'free', NULL),
+  ('CS203-Q3', 'ソフトウェア工学', 2, 2024, '情報工学部', '情報工学科', '13A', '中村次郎', 'A', '2年生', FALSE, 2, 'required', 'specialized_required', NULL),
+  ('ENG102-Q2', '英語II', 1, 2024, '共通', NULL, '11B', 'Johnson Mary', 'A', '全学科1年生', FALSE, 1, 'required', 'foreign_language', NULL),
+  ('CS101-Q1-25', 'プログラミング基礎', 1, 2025, '情報工学部', '情報工学科', '12A', '山田太郎', 'A', '1年生', FALSE, 2, 'required', 'specialized_required', NULL),
+  ('MATH101-Q1-25', '微積分学I', 1, 2025, '共通', NULL, '31C', '鈴木一郎', 'A', '全学科1年生', TRUE, 2, 'required', 'general', '9時開始');
 
 -- 講義スケジュールデータを挿入
 INSERT OR IGNORE INTO course_schedules (course_id, day_of_week, period, quarter) VALUES

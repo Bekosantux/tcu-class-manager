@@ -195,7 +195,7 @@ function updateUserInfo() {
   if (userSettings && userSettings.faculty) {
     const currentYear = new Date().getFullYear();
     const grade = Math.min(4, currentYear - userSettings.admission_year + 1);
-    userInfo.textContent = `${userSettings.department} ${grade}年生`;
+    userInfo.textContent = `${userSettings.faculty} ${userSettings.department} ${grade}年生`;
   }
 }
 
@@ -333,7 +333,7 @@ function renderTimetable() {
   const thead = table.querySelector('thead');
   thead.innerHTML = `
     <tr class="bg-gray-100">
-      <th class="border p-2" style="width: 60px;">時限</th>
+      <th class="border p-2 w-16" style="width: 64px; min-width: 64px; max-width: 64px;">時限</th>
       ${daysToShow.map(day => `<th class="border p-2">${dayNames[day]}</th>`).join('')}
     </tr>
   `;
@@ -346,8 +346,10 @@ function renderTimetable() {
     
     // Period column
     const periodCell = document.createElement('td');
-    periodCell.className = 'border p-2 text-center font-semibold bg-gray-100';
-    periodCell.style.width = '60px';
+    periodCell.className = 'border p-2 text-center font-semibold bg-gray-100 w-16';
+    periodCell.style.width = '64px';
+    periodCell.style.minWidth = '64px';
+    periodCell.style.maxWidth = '64px';
     periodCell.textContent = `${period}限`;
     row.appendChild(periodCell);
     
@@ -364,18 +366,14 @@ function renderTimetable() {
           ? 'bg-blue-100 p-2 rounded cursor-pointer hover:bg-blue-200 h-full overflow-hidden'
           : 'bg-gray-100 p-2 rounded cursor-pointer hover:bg-gray-200 h-full overflow-hidden';
         
-        // Truncate text with ellipsis (increased limits)
-        const courseName = course.course_name.length > 20 
-          ? course.course_name.substring(0, 20) + '...' 
-          : course.course_name;
-        const instructor = course.instructor && course.instructor.length > 30
-          ? course.instructor.substring(0, 30) + '...'
-          : course.instructor;
+        // Dynamic text truncation based on available space
+        const courseName = course.course_name;
+        const instructor = course.instructor || '';
         
         courseDiv.innerHTML = `
-          <div class="text-sm font-semibold truncate" title="${course.course_name}">${courseName}</div>
-          <div class="text-xs text-gray-600 truncate">${course.classroom || ''}</div>
-          <div class="text-xs text-gray-500 truncate" title="${course.instructor || ''}">${instructor || ''}</div>
+          <div class="text-sm font-semibold overflow-hidden text-ellipsis whitespace-nowrap" title="${course.course_name}">${courseName}</div>
+          <div class="text-xs text-gray-600 overflow-hidden text-ellipsis whitespace-nowrap">${course.classroom || ''}</div>
+          <div class="text-xs text-gray-500 overflow-hidden text-ellipsis whitespace-nowrap" title="${course.instructor || ''}">${instructor}</div>
         `;
         
         courseDiv.onclick = () => showCourseDetails(course);
@@ -507,17 +505,42 @@ async function loadRegisteredCourses() {
 }
 
 // Render registered courses
-function renderRegisteredCourses(filterStatus = '') {
+function renderRegisteredCourses(filters = {}) {
   const tbody = document.getElementById('registeredCoursesList');
   tbody.innerHTML = '';
   
-  const filtered = filterStatus !== '' 
-    ? registeredCourses.filter(c => c.status === filterStatus || (!c.status && filterStatus === ''))
-    : registeredCourses;
+  // Apply filters
+  let filtered = registeredCourses;
   
-  filtered.forEach(course => {
+  if (filters.status !== undefined && filters.status !== '') {
+    if (filters.status === 'none') {
+      filtered = filtered.filter(c => !c.status || c.status === '');
+    } else {
+      filtered = filtered.filter(c => c.status === filters.status);
+    }
+  }
+  
+  if (filters.year !== undefined && filters.year !== '') {
+    filtered = filtered.filter(c => c.course_year == filters.year);
+  }
+  
+  if (filters.category !== undefined && filters.category !== '') {
+    filtered = filtered.filter(c => (c.category || c.course_type) === filters.category);
+  }
+  
+  if (filters.credits !== undefined && filters.credits !== '') {
+    const creditsValue = parseFloat(filters.credits);
+    if (creditsValue >= 3) {
+      filtered = filtered.filter(c => (c.credits || 0) >= 3);
+    } else {
+      filtered = filtered.filter(c => (c.credits || 0) == creditsValue);
+    }
+  }
+  
+  filtered.forEach((course, index) => {
     const row = document.createElement('tr');
-    row.className = 'hover:bg-gray-50';
+    // Add striped background
+    row.className = index % 2 === 0 ? 'hover:bg-gray-100' : 'bg-gray-50 hover:bg-gray-100';
     
     // Status color
     let statusColor = '';
@@ -587,12 +610,12 @@ function renderRegisteredCourses(filterStatus = '') {
       <td class="px-4 py-2 border-b">${course.course_code || ''}</td>
       <td class="px-4 py-2 border-b font-medium">${course.course_name || ''}</td>
       <td class="px-4 py-2 border-b">${course.instructor || ''}</td>
-      <td class="px-4 py-2 border-b text-center">${course.credits || 0}</td>
+      <td class="px-4 py-2 border-b text-left">${course.credits || 0}</td>
       <td class="px-4 py-2 border-b">${categoryText}</td>
       <td class="px-4 py-2 border-b">
         ${statusText ? `<span class="px-2 py-1 rounded text-xs font-medium ${statusColor}">${statusText}</span>` : ''}
       </td>
-      <td class="px-4 py-2 border-b">
+      <td class="px-4 py-2 border-b text-center">
         <button onclick="editCourse(${course.course_id})" class="text-blue-600 hover:text-blue-800">
           <i class="fas fa-edit"></i>
         </button>
@@ -816,8 +839,13 @@ function renderCreditSummary(data) {
 
 // Filter courses
 function filterCourses() {
-  const filterValue = document.getElementById('statusFilter').value;
-  renderRegisteredCourses(filterValue);
+  const filters = {
+    status: document.getElementById('statusFilter').value,
+    year: document.getElementById('yearFilter')?.value,
+    category: document.getElementById('categoryFilter')?.value,
+    credits: document.getElementById('creditsFilter')?.value
+  };
+  renderRegisteredCourses(filters);
 }
 
 // Edit course
@@ -831,6 +859,8 @@ async function editCourse(courseId) {
   document.getElementById('editCourseId').value = course.course_id;
   document.getElementById('editCourseCode').value = course.course_code || '';
   document.getElementById('editCourseName').value = course.course_name || '';
+  document.getElementById('editCourseYear').value = course.course_year || new Date().getFullYear();
+  document.getElementById('editTargetYear').value = course.year || course.course_year || 1;
   document.getElementById('editInstructor').value = course.instructor || '';
   document.getElementById('editClassroom').value = course.classroom || '';
   document.getElementById('editCredits').value = course.credits || 0;
@@ -992,6 +1022,7 @@ async function saveCourseEdit() {
   
   const courseData = {
     course_name: document.getElementById('editCourseName').value,
+    course_year: parseInt(document.getElementById('editCourseYear').value) || new Date().getFullYear(),
     instructor: document.getElementById('editInstructor').value,
     classroom: document.getElementById('editClassroom').value,
     credits: parseFloat(document.getElementById('editCredits').value) || 0,

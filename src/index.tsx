@@ -82,8 +82,9 @@ app.get('/api/timetable', async (c) => {
       INNER JOIN course_schedules cs ON c.id = cs.course_id
       LEFT JOIN registrations r ON c.id = r.course_id AND r.year = ?
       WHERE (cs.quarter = ? OR cs.quarter = 'full_year' OR cs.quarter LIKE '%' || ? || '%')
+        AND (c.course_year = ? OR c.course_year IS NULL)
       ORDER BY cs.day_of_week, cs.period
-    `).bind(parseInt(year), quarter, quarter).all();
+    `).bind(parseInt(year), quarter, quarter, parseInt(year)).all();
     
     return c.json(result.results || []);
   } catch (error) {
@@ -291,7 +292,7 @@ app.put('/api/courses/:id', async (c) => {
     await DB.prepare(`
       UPDATE courses 
       SET course_name = ?, instructor = ?, classroom = ?, credits = ?, 
-          category = ?, course_type = ?, remarks = ?, updated_at = CURRENT_TIMESTAMP
+          category = ?, course_type = ?, course_year = ?, remarks = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `).bind(
       body.course_name,
@@ -300,6 +301,7 @@ app.put('/api/courses/:id', async (c) => {
       body.credits,
       body.category,
       body.course_type,
+      body.course_year,
       body.remarks,
       courseId
     ).run();
@@ -560,20 +562,40 @@ app.get('/', (c) => {
                     <h2 class="text-xl font-bold mb-4">登録済み講義一覧</h2>
                     <div class="bg-white rounded-lg shadow">
                         <div class="p-4 border-b">
-                            <div class="flex justify-between items-center">
-                                <div class="space-x-2">
-                                    <select id="statusFilter" onchange="filterCourses()" class="border rounded px-2 py-1">
-                                        <option value="">全て表示</option>
-                                        <option value="">状況なし</option>
-                                        <option value="completed">取得済</option>
-                                        <option value="registered">履修中</option>
-                                        <option value="planned">履修予定</option>
-                                        <option value="failed">不合格</option>
-                                    </select>
-                                    <button id="deleteToggleBtn" onclick="toggleDeleteMode()" class="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600">
-                                        <i class="fas fa-trash mr-1"></i>削除モード
-                                    </button>
-                                </div>
+                            <div class="flex flex-wrap gap-2">
+                                <select id="statusFilter" onchange="filterCourses()" class="border rounded px-2 py-1">
+                                    <option value="">状況: 全て</option>
+                                    <option value="none">状況なし</option>
+                                    <option value="completed">取得済</option>
+                                    <option value="registered">履修中</option>
+                                    <option value="planned">履修予定</option>
+                                    <option value="failed">不合格</option>
+                                </select>
+                                <select id="yearFilter" onchange="filterCourses()" class="border rounded px-2 py-1">
+                                    <option value="">開講年度: 全て</option>
+                                    <option value="2024">2024年度</option>
+                                    <option value="2025">2025年度</option>
+                                    <option value="2026">2026年度</option>
+                                </select>
+                                <select id="categoryFilter" onchange="filterCourses()" class="border rounded px-2 py-1">
+                                    <option value="">区分: 全て</option>
+                                    <option value="general">教養</option>
+                                    <option value="specialized_required">専門必修</option>
+                                    <option value="specialized_elective">専門選択</option>
+                                    <option value="foreign_language">外国語</option>
+                                    <option value="free">自由</option>
+                                </select>
+                                <select id="creditsFilter" onchange="filterCourses()" class="border rounded px-2 py-1">
+                                    <option value="">単位数: 全て</option>
+                                    <option value="0">0単位</option>
+                                    <option value="0.5">0.5単位</option>
+                                    <option value="1">1単位</option>
+                                    <option value="2">2単位</option>
+                                    <option value="3">3単位以上</option>
+                                </select>
+                                <button id="deleteToggleBtn" onclick="toggleDeleteMode()" class="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600 ml-auto">
+                                    <i class="fas fa-trash mr-1"></i>削除モード
+                                </button>
                             </div>
                         </div>
                         <div class="overflow-x-auto">
@@ -684,6 +706,17 @@ app.get('/', (c) => {
                                 <div>
                                     <label class="block text-sm font-medium text-gray-700 mb-1">講義名</label>
                                     <input type="text" id="editCourseName" class="w-full border rounded px-3 py-2">
+                                </div>
+                            </div>
+                            
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">開講年度</label>
+                                    <input type="number" id="editCourseYear" class="w-full border rounded px-3 py-2" min="2020" max="2030">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">対象学年</label>
+                                    <input type="number" id="editTargetYear" class="w-full border rounded px-3 py-2" min="1" max="4">
                                 </div>
                             </div>
                             
