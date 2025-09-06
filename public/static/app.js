@@ -107,6 +107,7 @@ async function loadSettings() {
         setTimeout(() => {
           document.getElementById('departmentSelect').value = data.department;
           document.getElementById('admissionYear').value = data.admission_year;
+          document.getElementById('currentGrade').value = data.current_grade || 1;
           document.getElementById('gradeFormat').value = data.grade_display_format || 'japanese';
         }, 100);
       }
@@ -121,6 +122,7 @@ async function saveSettings() {
   const faculty = document.getElementById('facultySelect').value;
   const department = document.getElementById('departmentSelect').value;
   const admissionYear = document.getElementById('admissionYear').value;
+  const currentGrade = document.getElementById('currentGrade').value;
   const gradeFormat = document.getElementById('gradeFormat').value;
   
   if (!faculty || !department) {
@@ -132,6 +134,7 @@ async function saveSettings() {
     faculty,
     department,
     admission_year: parseInt(admissionYear),
+    current_grade: parseInt(currentGrade),
     grade_display_format: gradeFormat,
     grade_requirements: {
       'Q1-Q2': 24,
@@ -262,12 +265,19 @@ function showGrades() {
   showGradeEvaluation(); // Default to grade evaluation tab
 }
 
+function showDebugMenu() {
+  hideAllViews();
+  document.getElementById('debugMenuView').classList.remove('hidden');
+  currentView = 'debug';
+}
+
 function hideAllViews() {
   document.getElementById('timetableView').classList.add('hidden');
   document.getElementById('settingsView').classList.add('hidden');
   document.getElementById('courseRegistrationView').classList.add('hidden');
   document.getElementById('registeredCoursesListView').classList.add('hidden');
   document.getElementById('gradesView').classList.add('hidden');
+  document.getElementById('debugMenuView')?.classList.add('hidden');
 }
 
 // Load timetable
@@ -362,9 +372,7 @@ function renderTimetable() {
       const course = timetable[period][day];
       if (course) {
         const courseDiv = document.createElement('div');
-        courseDiv.className = course.status === 'registered' 
-          ? 'bg-blue-100 p-2 rounded cursor-pointer hover:bg-blue-200 h-full overflow-hidden'
-          : 'bg-gray-100 p-2 rounded cursor-pointer hover:bg-gray-200 h-full overflow-hidden';
+        courseDiv.className = 'bg-gray-100 p-2 rounded cursor-pointer hover:bg-gray-200 h-full overflow-hidden';
         
         // Dynamic text truncation based on available space
         const courseName = course.course_name;
@@ -534,6 +542,51 @@ function renderRegisteredCourses(filters = {}) {
       filtered = filtered.filter(c => (c.credits || 0) >= 3);
     } else {
       filtered = filtered.filter(c => (c.credits || 0) == creditsValue);
+    }
+  }
+  
+  if (filters.targetYear !== undefined && filters.targetYear !== '') {
+    filtered = filtered.filter(c => c.target_year == filters.targetYear);
+  }
+  
+  if (filters.department !== undefined && filters.department !== '') {
+    filtered = filtered.filter(c => c.department === filters.department || c.department === '共通');
+  }
+  
+  if (filters.eligibility !== undefined && filters.eligibility !== '') {
+    // Check eligibility based on user settings and enrollment_target
+    if (userSettings && userSettings.admission_year && userSettings.faculty) {
+      const currentYear = new Date().getFullYear();
+      const admissionYear = userSettings.admission_year % 100; // Get last 2 digits
+      
+      filtered = filtered.filter(c => {
+        if (!c.enrollment_target) return filters.eligibility === 'eligible';
+        
+        try {
+          const target = JSON.parse(c.enrollment_target);
+          if (!target['受講対象'] || !Array.isArray(target['受講対象'])) {
+            return filters.eligibility === 'eligible';
+          }
+          
+          let isEligible = false;
+          for (const condition of target['受講対象']) {
+            const maxYear = condition['最大入学年度'];
+            const minYear = condition['最小入学年度'];
+            const faculties = condition['対象学部'] || [];
+            
+            if (admissionYear >= minYear && admissionYear <= maxYear) {
+              if (faculties.length === 0 || faculties.includes(userSettings.faculty)) {
+                isEligible = true;
+                break;
+              }
+            }
+          }
+          
+          return filters.eligibility === 'eligible' ? isEligible : !isEligible;
+        } catch (e) {
+          return filters.eligibility === 'eligible';
+        }
+      });
     }
   }
   
@@ -843,7 +896,10 @@ function filterCourses() {
     status: document.getElementById('statusFilter').value,
     year: document.getElementById('yearFilter')?.value,
     category: document.getElementById('categoryFilter')?.value,
-    credits: document.getElementById('creditsFilter')?.value
+    credits: document.getElementById('creditsFilter')?.value,
+    targetYear: document.getElementById('targetYearFilter')?.value,
+    department: document.getElementById('departmentFilter')?.value,
+    eligibility: document.getElementById('eligibilityFilter')?.value
   };
   renderRegisteredCourses(filters);
 }
@@ -855,13 +911,12 @@ async function editCourse(courseId) {
   
   currentEditingCourse = course;
   
-  // Populate form - Fixed: target_students should be for editTargetYear, year for editCourseYear
+  // Populate form
   document.getElementById('editCourseId').value = course.course_id;
   document.getElementById('editCourseCode').value = course.course_code || '';
   document.getElementById('editCourseName').value = course.course_name || '';
   document.getElementById('editCourseYear').value = course.year || course.course_year || new Date().getFullYear();
-  document.getElementById('editTargetYear').value = course.target_students || '1';
-  document.getElementById('editEnrollmentTarget').value = course.enrollment_target || '{}';
+  document.getElementById('editTargetYear').value = course.target_year || 1;
   document.getElementById('editInstructor').value = course.instructor || '';
   document.getElementById('editClassroom').value = course.classroom || '';
   document.getElementById('editCredits').value = course.credits || 0;
@@ -869,6 +924,9 @@ async function editCourse(courseId) {
   document.getElementById('editStatus').value = course.status || '';
   document.getElementById('editGrade').value = course.grade || '';
   document.getElementById('editRemarks').value = course.remarks || '';
+  
+  // Parse and display enrollment targets
+  renderEnrollmentTargetEditor(course.enrollment_target);
   
   // Update grade options based on user settings
   const gradeSelect = document.getElementById('editGrade');
@@ -999,10 +1057,196 @@ function removeScheduleRow(button) {
   }
 }
 
+// Render enrollment target editor
+function renderEnrollmentTargetEditor(enrollmentTargetJson) {
+  const container = document.getElementById('enrollmentTargetEditor');
+  container.innerHTML = '';
+  
+  let targets = [];
+  if (enrollmentTargetJson) {
+    try {
+      const parsed = JSON.parse(enrollmentTargetJson);
+      targets = parsed['受講対象'] || [];
+    } catch (e) {
+      targets = [];
+    }
+  }
+  
+  if (targets.length === 0) {
+    targets = [{ '最小入学年度': 20, '最大入学年度': 24, '対象学部': [] }];
+  }
+  
+  targets.forEach(target => {
+    addEnrollmentTargetRow(target);
+  });
+}
+
+// Add enrollment target row
+function addEnrollmentTargetRow(data = null) {
+  const container = document.getElementById('enrollmentTargetEditor');
+  const row = document.createElement('div');
+  row.className = 'border rounded p-3 space-y-2';
+  
+  const minYear = data ? data['最小入学年度'] : 20;
+  const maxYear = data ? data['最大入学年度'] : 24;
+  const selectedFaculties = data ? data['対象学部'] || [] : [];
+  
+  const faculties = [
+    '理工学部',
+    '建築都市デザイン学部',
+    '情報工学部',
+    '環境学部',
+    'メディア情報学部',
+    'デザイン・データ科学部',
+    '都市生活学部',
+    '人間科学部'
+  ];
+  
+  row.innerHTML = `
+    <div class="flex gap-2 items-center">
+      <label class="text-sm">入学年度:</label>
+      <input type="number" class="enrollment-min-year border rounded px-2 py-1 w-20" min="15" max="30" value="${minYear}">
+      <span>〜</span>
+      <input type="number" class="enrollment-max-year border rounded px-2 py-1 w-20" min="15" max="30" value="${maxYear}">
+      <button onclick="removeEnrollmentTargetRow(this)" class="text-red-600 hover:text-red-800 ml-auto">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+    <div class="space-y-1">
+      <label class="text-sm">対象学部（選択しない場合は全学部）:</label>
+      <div class="grid grid-cols-2 gap-2">
+        ${faculties.map(faculty => `
+          <label class="flex items-center text-sm">
+            <input type="checkbox" class="enrollment-faculty mr-1" value="${faculty}" 
+              ${selectedFaculties.includes(faculty) ? 'checked' : ''}>
+            ${faculty}
+          </label>
+        `).join('')}
+      </div>
+    </div>
+  `;
+  
+  container.appendChild(row);
+}
+
+// Remove enrollment target row
+function removeEnrollmentTargetRow(button) {
+  const row = button.closest('.border');
+  const container = document.getElementById('enrollmentTargetEditor');
+  if (container.children.length > 1) {
+    row.remove();
+  }
+}
+
 // Close edit modal
 function closeEditModal() {
   document.getElementById('courseEditModal').classList.add('hidden');
   currentEditingCourse = null;
+}
+
+// Debug Menu Functions
+async function resetAllData() {
+  if (!confirm('本当に全てのデータを削除してダミーデータを投入しますか？\nこの操作は取り消せません。')) {
+    return;
+  }
+  
+  try {
+    const response = await fetch('/api/debug/reset-all', { method: 'POST' });
+    const result = await response.json();
+    
+    if (response.ok) {
+      alert('データをリセットしました。ページを再読み込みします。');
+      location.reload();
+    } else {
+      alert('エラー: ' + result.error);
+    }
+  } catch (error) {
+    console.error('Error resetting data:', error);
+    alert('データのリセットに失敗しました。');
+  }
+}
+
+async function clearAllData() {
+  if (!confirm('本当に全てのデータを削除しますか？\nこの操作は取り消せません。')) {
+    return;
+  }
+  
+  try {
+    const response = await fetch('/api/debug/clear-all', { method: 'POST' });
+    const result = await response.json();
+    
+    if (response.ok) {
+      alert('全てのデータを削除しました。ページを再読み込みします。');
+      location.reload();
+    } else {
+      alert('エラー: ' + result.error);
+    }
+  } catch (error) {
+    console.error('Error clearing data:', error);
+    alert('データの削除に失敗しました。');
+  }
+}
+
+async function clearUserSettingsOnly() {
+  if (!confirm('ユーザー設定を削除して初回訪問状態にしますか？')) {
+    return;
+  }
+  
+  try {
+    const response = await fetch('/api/debug/clear-user-settings', { method: 'POST' });
+    const result = await response.json();
+    
+    if (response.ok) {
+      alert('ユーザー設定を削除しました。ページを再読み込みします。');
+      location.reload();
+    } else {
+      alert('エラー: ' + result.error);
+    }
+  } catch (error) {
+    console.error('Error clearing user settings:', error);
+    alert('ユーザー設定の削除に失敗しました。');
+  }
+}
+
+async function addDummyData() {
+  if (!confirm('ダミーデータを追加しますか？')) {
+    return;
+  }
+  
+  try {
+    const response = await fetch('/api/debug/reset-all', { method: 'POST' });
+    const result = await response.json();
+    
+    if (response.ok) {
+      alert('ダミーデータを追加しました。');
+      location.reload();
+    } else {
+      alert('エラー: ' + result.error);
+    }
+  } catch (error) {
+    console.error('Error adding dummy data:', error);
+    alert('ダミーデータの追加に失敗しました。');
+  }
+}
+
+async function showDatabaseInfo() {
+  try {
+    const response = await fetch('/api/debug/info');
+    const info = await response.json();
+    
+    if (response.ok) {
+      let message = 'データベース情報:\n\n';
+      for (const [table, count] of Object.entries(info)) {
+        message += `${table}: ${count}件\n`;
+      }
+      alert(message);
+    } else {
+      alert('エラー: ' + info.error);
+    }
+  } catch (error) {
+    console.error('Error getting database info:', error);
+    alert('データベース情報の取得に失敗しました。');
+  }
 }
 
 // Save course edit
@@ -1021,11 +1265,30 @@ async function saveCourseEdit() {
     }
   }
   
+  // Collect enrollment target data
+  const enrollmentTargets = [];
+  const targetRows = document.getElementById('enrollmentTargetEditor').children;
+  for (const row of targetRows) {
+    const minYear = row.querySelector('.enrollment-min-year').value;
+    const maxYear = row.querySelector('.enrollment-max-year').value;
+    const facultySelects = row.querySelectorAll('.enrollment-faculty:checked');
+    const faculties = Array.from(facultySelects).map(cb => cb.value);
+    
+    if (minYear && maxYear) {
+      enrollmentTargets.push({
+        '最小入学年度': parseInt(minYear),
+        '最大入学年度': parseInt(maxYear),
+        '対象学部': faculties
+      });
+    }
+  }
+  
   const courseData = {
     course_name: document.getElementById('editCourseName').value,
     year: parseInt(document.getElementById('editCourseYear').value) || new Date().getFullYear(),
-    target_students: document.getElementById('editTargetYear').value,
-    enrollment_target: document.getElementById('editEnrollmentTarget').value,
+    target_year: parseInt(document.getElementById('editTargetYear').value) || 1,
+    target_students: document.getElementById('editTargetYear').value + '年',
+    enrollment_target: JSON.stringify({ '受講対象': enrollmentTargets }),
     instructor: document.getElementById('editInstructor').value,
     classroom: document.getElementById('editClassroom').value,
     credits: parseFloat(document.getElementById('editCredits').value) || 0,

@@ -44,12 +44,13 @@ app.post('/api/settings', async (c) => {
   try {
     await DB.prepare(`
       INSERT OR REPLACE INTO user_settings 
-      (id, faculty, department, admission_year, grade_requirements, graduation_requirements, grade_display_format)
-      VALUES (1, ?, ?, ?, ?, ?, ?)
+      (id, faculty, department, admission_year, current_grade, grade_requirements, graduation_requirements, grade_display_format)
+      VALUES (1, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       body.faculty,
       body.department,
       body.admission_year,
+      body.current_grade || 1,
       JSON.stringify(body.grade_requirements || {}),
       JSON.stringify(body.graduation_requirements || {}),
       body.grade_display_format || 'japanese'
@@ -175,7 +176,9 @@ app.get('/api/registrations', async (c) => {
         c.category,
         c.year as course_year,
         c.target_students,
+        c.target_year,
         c.enrollment_target,
+        c.department,
         c.remarks
       FROM registrations r
       INNER JOIN courses c ON r.course_id = c.id
@@ -295,7 +298,7 @@ app.put('/api/courses/:id', async (c) => {
       UPDATE courses 
       SET course_name = ?, instructor = ?, classroom = ?, credits = ?, 
           category = ?, course_type = ?, year = ?, target_students = ?, 
-          enrollment_target = ?, remarks = ?, updated_at = CURRENT_TIMESTAMP
+          target_year = ?, enrollment_target = ?, remarks = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `).bind(
       body.course_name,
@@ -306,6 +309,7 @@ app.put('/api/courses/:id', async (c) => {
       body.course_type,
       body.year,
       body.target_students,
+      body.target_year,
       body.enrollment_target,
       body.remarks,
       courseId
@@ -350,6 +354,88 @@ app.get('/api/courses/:id/schedules', async (c) => {
   } catch (error) {
     console.error('Error fetching schedules:', error);
     return c.json({ error: 'Failed to fetch schedules' }, 500);
+  }
+});
+
+// Debug API: Reset all data with dummy data
+app.post('/api/debug/reset-all', async (c) => {
+  const { DB } = c.env;
+  
+  try {
+    // Drop all tables
+    await DB.prepare('DELETE FROM registrations').run();
+    await DB.prepare('DELETE FROM course_schedules').run();
+    await DB.prepare('DELETE FROM courses').run();
+    await DB.prepare('DELETE FROM user_settings').run();
+    
+    // Load and execute seed data
+    const seedResponse = await fetch('/static/seed.sql');
+    if (seedResponse.ok) {
+      const seedSql = await seedResponse.text();
+      const statements = seedSql.split(';').filter(s => s.trim());
+      
+      for (const stmt of statements) {
+        if (stmt.trim()) {
+          await DB.prepare(stmt).run();
+        }
+      }
+    }
+    
+    return c.json({ success: true, message: 'All data reset with dummy data' });
+  } catch (error) {
+    console.error('Error resetting data:', error);
+    return c.json({ error: 'Failed to reset data', details: error.message }, 500);
+  }
+});
+
+// Debug API: Clear all data
+app.post('/api/debug/clear-all', async (c) => {
+  const { DB } = c.env;
+  
+  try {
+    await DB.prepare('DELETE FROM registrations').run();
+    await DB.prepare('DELETE FROM course_schedules').run();
+    await DB.prepare('DELETE FROM courses').run();
+    await DB.prepare('DELETE FROM user_settings').run();
+    
+    return c.json({ success: true, message: 'All data cleared' });
+  } catch (error) {
+    console.error('Error clearing data:', error);
+    return c.json({ error: 'Failed to clear data', details: error.message }, 500);
+  }
+});
+
+// Debug API: Clear user settings only
+app.post('/api/debug/clear-user-settings', async (c) => {
+  const { DB } = c.env;
+  
+  try {
+    await DB.prepare('DELETE FROM user_settings').run();
+    
+    return c.json({ success: true, message: 'User settings cleared' });
+  } catch (error) {
+    console.error('Error clearing user settings:', error);
+    return c.json({ error: 'Failed to clear user settings', details: error.message }, 500);
+  }
+});
+
+// Debug API: Get database info
+app.get('/api/debug/info', async (c) => {
+  const { DB } = c.env;
+  
+  try {
+    const tables = ['user_settings', 'courses', 'course_schedules', 'registrations'];
+    const info = {};
+    
+    for (const table of tables) {
+      const result = await DB.prepare(`SELECT COUNT(*) as count FROM ${table}`).first();
+      info[table] = result.count;
+    }
+    
+    return c.json(info);
+  } catch (error) {
+    console.error('Error getting database info:', error);
+    return c.json({ error: 'Failed to get database info', details: error.message }, 500);
   }
 });
 
@@ -420,6 +506,11 @@ app.get('/', (c) => {
                             <li>
                                 <a href="#" onclick="showGrades(); toggleSidebar();" class="block px-4 py-2 rounded hover:bg-gray-700 transition-colors">
                                     <i class="fas fa-chart-line mr-2"></i>成績照会
+                                </a>
+                            </li>
+                            <li>
+                                <a href="#" onclick="showDebugMenu(); toggleSidebar();" class="block px-4 py-2 rounded hover:bg-gray-700 transition-colors">
+                                    <i class="fas fa-bug mr-2"></i>デバッグメニュー
                                 </a>
                             </li>
                         </ul>
@@ -536,6 +627,16 @@ app.get('/', (c) => {
                                 <input type="number" id="admissionYear" class="w-full border rounded px-3 py-2" min="2020" max="2030" value="2024">
                             </div>
                             <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">現在の学年</label>
+                                <select id="currentGrade" class="w-full border rounded px-3 py-2">
+                                    <option value="1">1年</option>
+                                    <option value="2">2年</option>
+                                    <option value="3">3年</option>
+                                    <option value="4">4年</option>
+                                    <option value="5">5年以上</option>
+                                </select>
+                            </div>
+                            <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-1">成績表示形式</label>
                                 <select id="gradeFormat" class="w-full border rounded px-3 py-2">
                                     <option value="japanese">秀・優・良・可・不可</option>
@@ -597,6 +698,23 @@ app.get('/', (c) => {
                                     <option value="1">1単位</option>
                                     <option value="2">2単位</option>
                                     <option value="3">3単位以上</option>
+                                </select>
+                                <select id="targetYearFilter" onchange="filterCourses()" class="border rounded px-2 py-1">
+                                    <option value="">対象学年: 全て</option>
+                                    <option value="1">1年</option>
+                                    <option value="2">2年</option>
+                                    <option value="3">3年</option>
+                                    <option value="4">4年</option>
+                                </select>
+                                <select id="departmentFilter" onchange="filterCourses()" class="border rounded px-2 py-1">
+                                    <option value="">対象学科: 全て</option>
+                                    <option value="情報科学科">情報科学科</option>
+                                    <option value="共通">共通</option>
+                                </select>
+                                <select id="eligibilityFilter" onchange="filterCourses()" class="border rounded px-2 py-1">
+                                    <option value="">受講対象: 全て</option>
+                                    <option value="eligible">受講可能</option>
+                                    <option value="not_eligible">受講不可</option>
                                 </select>
                                 <button id="deleteToggleBtn" onclick="toggleDeleteMode()" class="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600 ml-auto">
                                     <i class="fas fa-trash mr-1"></i>削除モード
@@ -691,6 +809,47 @@ app.get('/', (c) => {
                     </div>
                 </div>
                 
+                <!-- Debug Menu View -->
+                <div id="debugMenuView" class="hidden">
+                    <h2 class="text-xl font-bold mb-4">デバッグメニュー</h2>
+                    <div class="bg-white rounded-lg shadow p-6">
+                        <div class="space-y-4">
+                            <div class="border border-red-500 rounded p-4 bg-red-50">
+                                <h3 class="text-lg font-semibold text-red-700 mb-2">⚠️ 危険な操作</h3>
+                                <p class="text-gray-700 mb-4">以下の操作は全てのデータを削除します。元に戻すことはできません。</p>
+                                
+                                <div class="space-y-3">
+                                    <button onclick="resetAllData()" class="w-full bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 transition-colors">
+                                        <i class="fas fa-trash-alt mr-2"></i>全データを削除してダミーデータを投入
+                                    </button>
+                                    
+                                    <button onclick="clearAllData()" class="w-full bg-orange-600 text-white px-4 py-2 rounded hover:bg-orange-700 transition-colors">
+                                        <i class="fas fa-broom mr-2"></i>全データを削除（ダミーデータなし）
+                                    </button>
+                                    
+                                    <button onclick="clearUserSettingsOnly()" class="w-full bg-yellow-600 text-white px-4 py-2 rounded hover:bg-yellow-700 transition-colors">
+                                        <i class="fas fa-user-times mr-2"></i>ユーザー設定のみ削除（初回訪問状態にする）
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <div class="border border-blue-500 rounded p-4 bg-blue-50">
+                                <h3 class="text-lg font-semibold text-blue-700 mb-2">🔧 デバッグ操作</h3>
+                                
+                                <div class="space-y-3">
+                                    <button onclick="addDummyData()" class="w-full bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition-colors">
+                                        <i class="fas fa-database mr-2"></i>ダミーデータを追加（既存データは保持）
+                                    </button>
+                                    
+                                    <button onclick="showDatabaseInfo()" class="w-full bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition-colors">
+                                        <i class="fas fa-info-circle mr-2"></i>データベース情報を表示
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
                 <!-- Course Edit Modal -->
                 <div id="courseEditModal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50">
                     <div class="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
@@ -721,7 +880,12 @@ app.get('/', (c) => {
                                 </div>
                                 <div>
                                     <label class="block text-sm font-medium text-gray-700 mb-1">対象学年</label>
-                                    <input type="text" id="editTargetYear" class="w-full border rounded px-3 py-2" placeholder="例: 1年, 2-3年">
+                                    <select id="editTargetYear" class="w-full border rounded px-3 py-2">
+                                        <option value="1">1年</option>
+                                        <option value="2">2年</option>
+                                        <option value="3">3年</option>
+                                        <option value="4">4年</option>
+                                    </select>
                                 </div>
                             </div>
                             
@@ -780,8 +944,12 @@ app.get('/', (c) => {
                             
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-1">受講対象</label>
-                                <textarea id="editEnrollmentTarget" class="w-full border rounded px-3 py-2" rows="3" placeholder='{"受講対象":[{"最大入学年度":24,"最小入学年度":22,"対象学部":["理工学部"]}]}'></textarea>
-                                <p class="text-xs text-gray-500 mt-1">JSON形式で受講対象を指定。留年者などの受講条件判定に使用</p>
+                                <div id="enrollmentTargetEditor" class="space-y-2">
+                                    <!-- Dynamically generated enrollment target inputs -->
+                                </div>
+                                <button type="button" onclick="addEnrollmentTargetRow()" class="mt-2 text-sm text-blue-600 hover:text-blue-800">
+                                    <i class="fas fa-plus"></i> 受講対象を追加
+                                </button>
                             </div>
                             
                             <div>
